@@ -29,6 +29,7 @@ type Node struct {
     udp netutil.UDP
     tcp netutil.TCP
     id string
+    index int
     peers []string
 }
 
@@ -41,6 +42,7 @@ func (node *Node) Init() error {
         return dberr
     }
 
+    // exctract the initial view of the system from the os environment
     view := strings.Split(os.Getenv("VIEW"), ",")
     addr := os.Getenv("ADDRESS")
     node.peers = view
@@ -49,13 +51,17 @@ func (node *Node) Init() error {
     node.db = db
     node.id = addr
 
-    // contact all nodes to make sure they are up
+    // create a udp utility
     udp := new(netutil.UDP)
     udp.Init("1053", 1024)
     node.udp = *udp
 
-    p2p := new(protocols.PingPeer)
-    p2p.SendMsg(node.udp)
+    // use the peer to peer connectivity protocol 
+    p2p := new(protocols.Chain)
+    numReplicas := len(node.peers)
+    node.index = (p2p.Hash(node.id) % numReplicas)
+
+    p2p.ChainMsg(node.udp, node.index)
 
     return nil
 }

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"log"
+	"bufio"
 )
 
 type Network interface {
@@ -14,11 +15,13 @@ type Network interface {
 type UDP struct {
     port string
     buffer int
+    timeout int
 }
 
 type TCP struct {
     port string
     buffer int
+    timeout int
 }
 
 func (udp *UDP) Init(port string, buffer int) {
@@ -26,39 +29,72 @@ func (udp *UDP) Init(port string, buffer int) {
 	udp.buffer = buffer
 }
 
-func (udp *UDP) Send() error {
-    fmt.Println("sending message")
+func (udp *UDP) Send(host string, msg string) error {
+    p :=  make([]byte, udp.buffer)
+    addr := host + ":" + udp.port
 
+    conn, err := net.Dial("udp", addr)
+
+    if err != nil {
+        fmt.Printf("Some error %v", err)
+        return
+    }
+
+    fmt.Fprintf(conn, msg)
+
+    _, err = bufio.NewReader(conn).Read(p)
+
+    if err == nil {
+        fmt.Printf("%s\n", p)
+    } else {
+        fmt.Printf("Some error %v\n", err)
+    }
+    conn.Close()
     return nil
 }
 
-func (udp *UDP) Recv() error {
-    // listen to incoming udp packets
-    recvAddr := ":" + udp.port
-    
-	pc, err := net.ListenPacket("udp", recvAddr)
-	if err != nil {
-		log.Fatal(err)
-	}
+func (udp *UDP) Recv(msg string) error {
+    p := make([]byte, udp.buffer)
 
-	defer pc.Close() // close socket before function returns
+    addr := net.UDPAddr{
+        Port: udp.port,
+        IP: net.ParseIP("127.0.0.1"),
+    }
 
-	for {
-		buf := make([]byte, udp.buffer)
-		n, addr, err := pc.ReadFrom(buf)
-		if err != nil {
-			continue
-		}
-		go udp.Write(pc, addr, buf[:n])
-	}
+    ser, err := net.ListenUDP("udp", &addr)
+    if err != nil {
+        fmt.Printf("Some error %v\n", err)
+        return
+    }
+    for {
+        _, remoteaddr,err := ser.ReadFromUDP(p)
+        fmt.Printf("Read a message from %v %s \n", remoteaddr, p)
+        
+        if err !=  nil {
+            fmt.Printf("Some error  %v", err)
+            continue
+        }
+        go sendResponse(ser, remoteaddr, msg)
+    }
 
 	return nil
 }
 
-func (udp *UDP) Write(pc net.PacketConn, addr net.Addr, buf []byte) {
-	// 0 - 1: ID
-	// 2: QR(1): Opcode(4)
-	buf[2] |= 0x80 // Set QR bit
-
-	pc.WriteTo(buf, addr)
+func (udp *UDP) sendResponse(conn *net.UDPConn, addr *net.UDPAddr, msg string) {
+    _,err := conn.WriteToUDP([]byte(msg), addr)
+    if err != nil {
+        fmt.Printf("Couldn't send response %v", err)
+    }
 }
+
+func (udp *UDP) errorHandler(err error, action string){
+    if err != nil { 
+        fmt.Println(err)
+
+        if action == "terminate" {
+        	os.Exit(1)
+        } 
+    }
+}
+
+
