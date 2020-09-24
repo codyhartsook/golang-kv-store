@@ -1,4 +1,4 @@
-package protocol
+package Network
 
 type Car struct {
 	Price int

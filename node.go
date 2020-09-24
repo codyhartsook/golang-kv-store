@@ -3,11 +3,12 @@ package main
 import (
     "fmt"
     "log"
-    //balancer "kv-store/load-balance"
-    //"bytes"
+    netutil "kv-store/Network"
+    protocols "kv-store/Protocols"
     "github.com/ethereum/go-ethereum/ethdb"
     "github.com/ethereum/go-ethereum/core/rawdb"
     "net/http"
+    "strings"
     "encoding/json"
     "os"
 )
@@ -21,24 +22,45 @@ func createDB() (ethdb.Database, error) {
     return db, err
 }
 
-// Define node structure in order to provide access to the database
+// Define node structure in order to provide access to the database and 
+// network fucntions wrapper
 type Node struct {
     db ethdb.Database
+    udp netutil.UDP
+    tcp netutil.TCP
     id string
+    peers []string
 }
 
 // initialize the key-value store
-func (node *Node) Init(id string) {
+func (node *Node) Init() error {
     db, dberr := createDB()
 
     if dberr != nil {
         fmt.Println("database not created")
+        return dberr
     }
 
+    view := strings.Split(os.Getenv("VIEW"), ",")
+    addr := os.Getenv("ADDRESS")
+    node.peers = view
+
+    // Set this nodes database
     node.db = db
-    node.id = id
+    node.id = addr
+
+    // contact all nodes to make sure they are up
+    udp := new(netutil.UDP)
+    udp.Init("1053", 1024)
+    node.udp = *udp
+
+    p2p := new(protocols.PingPeer)
+    p2p.SendMsg(node.udp)
+
+    return nil
 }
 
+// format key-value user entries
 type Entry struct {
     Key         string `json:"Key"`
     Value       string `json:"Value"`
@@ -53,22 +75,24 @@ type Value struct {
 }
 
 /* 
- * API endpoints
+ * HTTP user endpoints
  */
 
 // display root message
 func (node *Node) stateHandler(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprintf(w, "Welcome!")
-    fmt.Println("RESTfulServ. on:8093, Controller:", r.URL.Path[1:])
-}
+    fmt.Fprintf(w, "Node id: {%s}\n", node.id)
+    fmt.Fprintf(w, "Node status: running\n")
+    fmt.Fprintf(w, "Peer nodes:")
+    fmt.Fprintf(w, "Database state:\n")
 
-// Return json list of key-value pairs
-func (node *Node) keyCountHandler(w http.ResponseWriter, r *http.Request) {
-    // Iterate over the database with the given configs and verify the results
-    it := db.NewIterator([]byte{}, []byte{}
+    // Iterate over the database 
+    it := node.db.NewIterator([]byte{}, []byte{})
     for it.Next() {
-        thisKey := it.Key()
-        fmt.Println(thisKey)
+        thisKey := string(it.Key()[:])
+        thisVal := string(it.Value()[:])
+        fmt.Println(thisKey, thisVal)
+
+        fmt.Fprintf(w, "    %s -> %s\n", thisKey, thisVal)
     }
 }
 
@@ -139,13 +163,11 @@ func main() {
 
     // create the node instance
     var node Node
-    node.Init("node0")
+    nodeStatus := node.Init()
+    errorHandler(nodeStatus)
 
-    // define a root endpoint
-    http.HandleFunc("/kv-store/state", node.stateHandler)
-   
-    // define a keys endpoint
-    http.HandleFunc("/kv-store/key-count", node.keyCountHandler)
+    // returns the contents of the database and any node info
+    http.HandleFunc("/kv-store/snapshot", node.stateHandler)
 
     // define a values endpoint
     http.HandleFunc("/kv-store/put-key", node.putHandler)
