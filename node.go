@@ -53,7 +53,7 @@ func (node *Node) Init() error {
 
     // create a udp utility
     udp := new(netutil.UDP)
-    udp.Init("1053", 1024)
+    udp.Init(1053, 1024)
     node.udp = *udp
 
     // use the peer to peer connectivity protocol 
@@ -61,9 +61,9 @@ func (node *Node) Init() error {
     numReplicas := len(node.peers)
     node.index = (p2p.Hash(node.id) % numReplicas)
 
-    p2p.ChainMsg(node.udp, node.index)
+    mesh_status := p2p.ChainMsg(node.udp, node.index, node.peers)
 
-    return nil
+    return mesh_status
 }
 
 // format key-value user entries

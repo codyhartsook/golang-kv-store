@@ -1,5 +1,5 @@
-docker stop node2
-docker rm node2
+docker stop "node2"
+docker rm "node2"
 
 docker build -t kv-store:4.0 .
 
