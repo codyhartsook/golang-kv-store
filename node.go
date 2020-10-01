@@ -3,6 +3,7 @@ package main
 import (
     "fmt"
     "log"
+    "strconv"
     netutil "kv-store/Network"
     protocols "kv-store/Protocols"
     "github.com/ethereum/go-ethereum/ethdb"
@@ -28,6 +29,7 @@ type Node struct {
     db ethdb.Database
     udp netutil.UDP
     tcp netutil.TCP
+    oracle protocols.Orchestrator
     id string
     index int
     peers []string
@@ -42,28 +44,43 @@ func (node *Node) Init() error {
         return dberr
     }
 
-    // exctract the initial view of the system from the os environment
-    view := strings.Split(os.Getenv("VIEW"), ",")
-    addr := os.Getenv("ADDRESS")
-    node.peers = view
-
     // Set this nodes database
     node.db = db
+
+    // exctract the initial view of the system from the os environment
+    addr := os.Getenv("ADDRESS")
+
+    if addr == "" {
+        err := fmt.Errorf("os environment variables not set")
+        return err
+    }
+
+    view := strings.Split(os.Getenv("VIEW"), ",")
+    port, _ := strconv.Atoi(strings.Split(addr, ":")[1])
     node.id = addr
+    node.peers = view
+
+    fmt.Println(addr)
+    fmt.Println(node.peers)
 
     // create a udp utility
     udp := new(netutil.UDP)
-    udp.Init(1053, 1024)
+    udp.Init(port, 13800, 1024)
     node.udp = *udp
 
-    // use the peer to peer connectivity protocol 
-    p2p := new(protocols.Chain)
-    numReplicas := len(node.peers)
-    node.index = (p2p.Hash(node.id) % numReplicas)
+    oracle := protocols.NewOrchestrator(node.id, node.peers)
+    node.oracle = *oracle
 
-    mesh_status := p2p.ChainMsg(node.udp, node.index, node.peers)
+    // run the server daemon
+    go udp.ServerDaemon() // run this in the background
+
+    // use the peer to peer connectivity protocol 
+    p2p := protocols.NewChainMessager()
+
+    mesh_status := p2p.ChainMsg(node.oracle, node.udp)
 
     return mesh_status
+    //return nil
 }
 
 // format key-value user entries
@@ -100,12 +117,6 @@ func (node *Node) stateHandler(w http.ResponseWriter, r *http.Request) {
 
         fmt.Fprintf(w, "    %s -> %s\n", thisKey, thisVal)
     }
-}
-
-// return current view of nodes  
-func (node *Node) viewHandler(w http.ResponseWriter, r *http.Request) {
-    fmt.Fprintf(w, "Hello %s!", r.URL.Path[1:])
-    fmt.Println("RESTfulServ. on:8093, Controller:", r.URL.Path[1:])
 }
 
 // Put a new key, val into the database

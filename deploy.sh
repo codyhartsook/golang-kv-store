@@ -1,21 +1,19 @@
-docker stop "node2"
-docker rm "node2"
+name=$1
+ip=$2
+port=$3
+view=$4 
+addr="${ip}:13800"
 
-docker build -t kv-store:4.0 .
+docker stop "${name}"
+docker rm "${name}"
 
-# example node addresses
-addr1="10.10.0.2:13800"
-addr2="10.10.0.3:13800"
-addr3="10.10.0.4:13800"
-addr4="10.10.0.5:13800"
+docker build -t kv-store:5.0 .
 
-# convenience variables
-initial_full_view="${addr1},${addr2}"
-full_view=${initial_full_view},${addr3},${addr4}
+clear
 
-docker run --name="node2"        --net=kv_subnet     \
-           --ip=10.10.0.3        -p 13803:13800      \
-           -e ADDRESS="${addr2}"                     \
-           -e REPL_FACTOR=2							 \
-           -e VIEW=${full_view}                      \
-           kv-store:4.0
+docker run --name="${name}"      --net=kv_subnet         \
+           --ip="${ip}"          -p "${port}":13800/udp  \
+           -e ADDRESS="${addr}"  -p "${port}":13800      \
+           -e REPL_FACTOR=2							     \
+           -e VIEW="${view}"                             \
+           kv-store:5.0  
