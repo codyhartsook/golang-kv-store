@@ -3,7 +3,6 @@ package Network
 import (
 	"fmt"
 	"net"
-	"time"
 	"strings"
 	"errors"
 	"os"
@@ -24,6 +23,7 @@ type UDP struct {
     recv_port int
     buffer int
     timeout int
+    actions map[string]interface{}
 }
 
 type TCP struct {
@@ -38,12 +38,23 @@ type Msg struct {
     Context []int
 }
 
+// used to implement a recv from blocking call
+var wait chan struct{}
+
+//
 func (udp *UDP) Init(s_port int, r_port int, buffer int) {
 	udp.send_port = s_port
 	udp.recv_port = r_port
 	udp.buffer = buffer
+	
+	m := map[string]interface{} {
+    	"signal": udp.Signal,
+    	"send": udp.Send,
+  	}
+  	udp.actions = m
 }
 
+//
 func(udp *UDP) FormatAddr(addr string) string {
 	if strings.Contains(addr, ":") {
 		host := strings.Split(addr, ":")[0]
@@ -53,6 +64,15 @@ func(udp *UDP) FormatAddr(addr string) string {
 	return addr
 } 
 
+//
+func (udp *UDP) RecvFrom() {
+	wait = make(chan struct{})
+
+	// wait until we have been signaled
+	<-wait
+}
+
+//
 func (udp *UDP) Send(raw_addr string, msg string, action string, context []int) error {
 	Msg := Msg{Message:msg, Action:action, Context:context} // create new message 
 
@@ -86,51 +106,7 @@ func (udp *UDP) Send(raw_addr string, msg string, action string, context []int) 
 
 	// send time request
 	_, err = conn.Write(buffer.Bytes())
-
 	return err
-}
-
-func (udp *UDP) Recv(total_packets int, timeout int) (error, *net.UDPConn) {
-    p := make([]byte, udp.buffer)
-    oob := make([]byte, udp.buffer)
-
-    // listen to all addresses
-    addr := net.UDPAddr{
-        Port: udp.recv_port,
-        IP: net.ParseIP("0.0.0.0"),
-    }
-
-    conn, err := net.ListenUDP("udp", &addr)
-    if err != nil {
-        fmt.Println("failed to create socket:", err)
-        return errors.New("Failed to create socket"), nil
-    }
-
-    // receive a specified number of packets
-    packets_recv := 0
-
-    // set a read timeout
-    conn.SetReadDeadline(time.Now().Add(time.Duration(timeout) * time.Second))
-
-    for packets_recv < total_packets {
-
-        _, _, _, _, err := conn.ReadMsgUDP(p, oob)
-        msg := string(p)
-
-        fmt.Printf("Received a message!", msg)
-
-        if err != nil {
-	       if e, ok := err.(net.Error); !ok || !e.Timeout() {
-	           // handle error, it's not a timeout
-	           fmt.Println("error getting request:", err)
-	       }
-	       return err, conn // this read was timed out
-	   }
-
-	   packets_recv++
-    }
-
-	return nil, conn
 }
 
 // This function listens to clients as a go routine and hands off
@@ -147,19 +123,30 @@ func (udp *UDP) ServerDaemon() error {
     }
 
     conn, err := net.ListenUDP("udp", &addr)
+    defer conn.Close()
+
     if err != nil {
         fmt.Println("failed to create socket:", err)
         return errors.New("Failed to create socket")
     }
 
-    _, _, _, _, rerr := conn.ReadMsgUDP(buffer.Bytes(), oob)
+    // run indefinately
+    for {
 
-    udp.ActionHandler(*buffer) // determine what to do with this packet
+	    _, _, _, _, rerr := conn.ReadMsgUDP(buffer.Bytes(), oob)
 
-    return rerr
+	    if rerr != nil {
+	    	fmt.Println("ReadMsgUDP error", rerr)
+	    }
+
+	    go udp.MessageHandler(*buffer, conn) // determine what to do with this packet
+	}
+
+	return nil
 }
 
-func (udp *UDP) ActionHandler(buffer bytes.Buffer) error {
+//
+func (udp *UDP) MessageHandler(buffer bytes.Buffer, conn *net.UDPConn) error {
 	var msg_decode Msg
 
 	d := gob.NewDecoder(&buffer)
@@ -168,11 +155,26 @@ func (udp *UDP) ActionHandler(buffer bytes.Buffer) error {
 	  panic(err)
 	}
  
-   fmt.Println("Decoded Struct ", msg_decode.Message,"\t", msg_decode.Action)
+   fmt.Println("Decoded Struct \n", msg_decode.Message,"\n", msg_decode.Action)
+
+   // loop through actions map
+   for k, v := range udp.actions {
+        switch k {
+
+        case "signal":
+            v.(func())()
+        }
+    }
 
    return nil
 }
 
+// Will raise the signal chan releasing any functions waiting for the signal
+func (udp *UDP) Signal() {
+	close(wait)
+}
+
+//
 func (udp *UDP) SendResponse(conn *net.UDPConn, addr *net.UDPAddr, msg string) {
     _, err := conn.WriteToUDP([]byte(msg), addr)
     if err != nil {
@@ -180,7 +182,8 @@ func (udp *UDP) SendResponse(conn *net.UDPConn, addr *net.UDPAddr, msg string) {
     }
 }
 
-func (udp *UDP) errorHandler(err error, action string){
+//
+func (udp *UDP) errorHandler(err error, action string) {
     if err != nil { 
         fmt.Println(err)
 

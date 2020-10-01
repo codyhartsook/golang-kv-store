@@ -77,10 +77,9 @@ func (node *Node) Init() error {
     // use the peer to peer connectivity protocol 
     p2p := protocols.NewChainMessager()
 
-    mesh_status := p2p.ChainMsg(node.oracle, node.udp)
+    go p2p.ChainMsg(node.oracle, node.udp) // run this in the background as well
 
-    return mesh_status
-    //return nil
+    return nil
 }
 
 // format key-value user entries

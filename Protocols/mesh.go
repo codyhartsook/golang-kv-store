@@ -1,4 +1,4 @@
-package p2p
+package P2P
 
 import (
 	"fmt"
@@ -6,10 +6,6 @@ import (
 	"hash/fnv"
 	protocols "kv-store/Network"
 )
-
-/*type Exec struct {
-	action_map map
-}*/
 
 type Orchestrator struct {
 	view []string
@@ -148,28 +144,20 @@ func (proto *Chain) ChainMsg(oracle Orchestrator, udp protocols.UDP) error {
 		udp.Send(initAddr, proto.msg, proto.action, oracle.context)
 		fmt.Println("Sending message to first node", initAddr)
 	}
-	
-	// wait to receive packet from node in chain
-	// note that this will block until all messages have been received or a timeotu occures
-	/*cerr, conn := udp.Recv(proto.num_packets, proto.timeout)
 
-	if cerr != nil {
-		fmt.Println("error getting request from peer, check that all nodes are up:", cerr)
-		return cerr
-	}
-
-	conn.Close()
+	udp.RecvFrom() // wait until this node gets a message
 
 	// if we are the last node, reset index 
-	if index == len(oracle.view) {
+	if index == (len(oracle.view)-1) {
 		index = -1
 	}
 
 	// if we are not the first node, send message to next node in chain
 	if index != 0 {
 		addr := oracle.view[index+1]
+		fmt.Println("Sending message to next node", addr)
 		udp.Send(addr, proto.msg, proto.action, oracle.context)
-	}*/
+	}
 
 	return nil
 }
