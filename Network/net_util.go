@@ -159,6 +159,10 @@ func (udp *UDP) MessageHandler(buffer bytes.Buffer, conn *net.UDPConn) error {
 
    // loop through actions map
    for k, v := range udp.actions {
+   		if k != msg_decode.Action {
+   			continue
+   		}
+   		
         switch k {
 
         case "signal":

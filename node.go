@@ -6,27 +6,15 @@ import (
     "strconv"
     netutil "kv-store/Network"
     protocols "kv-store/Protocols"
-    "github.com/ethereum/go-ethereum/ethdb"
-    "github.com/ethereum/go-ethereum/core/rawdb"
     "net/http"
     "strings"
     "encoding/json"
     "os"
 )
 
-// create an ethereum key-value database
-func createDB() (ethdb.Database, error) {
-    var err error
-    var db ethdb.Database
-    db = rawdb.NewMemoryDatabase()
-
-    return db, err
-}
-
 // Define node structure in order to provide access to the database and 
 // network fucntions wrapper
 type Node struct {
-    db ethdb.Database
     udp netutil.UDP
     tcp netutil.TCP
     oracle protocols.Orchestrator
@@ -37,15 +25,6 @@ type Node struct {
 
 // initialize the key-value store
 func (node *Node) Init() error {
-    db, dberr := createDB()
-
-    if dberr != nil {
-        fmt.Println("database not created")
-        return dberr
-    }
-
-    // Set this nodes database
-    node.db = db
 
     // exctract the initial view of the system from the os environment
     addr := os.Getenv("ADDRESS")
@@ -77,7 +56,7 @@ func (node *Node) Init() error {
     // use the peer to peer connectivity protocol 
     p2p := protocols.NewChainMessager()
 
-    go p2p.ChainMsg(node.oracle, node.udp) // run this in the background as well
+    go p2p.ChainMsg(node.oracle, node.udp) // wait till all replicas are up
 
     return nil
 }
@@ -107,15 +86,7 @@ func (node *Node) stateHandler(w http.ResponseWriter, r *http.Request) {
     fmt.Fprintf(w, "Peer nodes:")
     fmt.Fprintf(w, "Database state:\n")
 
-    // Iterate over the database 
-    it := node.db.NewIterator([]byte{}, []byte{})
-    for it.Next() {
-        thisKey := string(it.Key()[:])
-        thisVal := string(it.Value()[:])
-        fmt.Println(thisKey, thisVal)
-
-        fmt.Fprintf(w, "    %s -> %s\n", thisKey, thisVal)
-    }
+    node.oracle.AllPairs(w)
 }
 
 // Put a new key, val into the database
@@ -128,12 +99,14 @@ func (node *Node) putHandler(w http.ResponseWriter, r *http.Request) {
 
     if err != nil {
         http.Error(w, err.Error(), 500)
-        return
+        return 
     }
 
-    insertErr := node.db.Put([]byte(newEntry.Key), []byte(newEntry.Value))
-    if insertErr != nil {
-        fmt.Println("can't Put on open DB:", insertErr)
+    status := node.oracle.Put(newEntry.Key, newEntry.Value)
+
+    if status != nil {
+        fmt.Println("Could not put new key, value pair in database")
+        return
     }
 }
 
@@ -150,7 +123,7 @@ func (node *Node) getHandler(w http.ResponseWriter, r *http.Request) {
     }
 
     // get entry from database and handle any errors
-    got, getErr := node.db.Get([]byte(thisKey.Key))
+    got, getErr := node.oracle.Get(thisKey.Key)
     if getErr != nil {
         fmt.Println("Could not retreive key")
         http.Error(w, getErr.Error(), 400)
@@ -200,6 +173,6 @@ func main() {
 func errorHandler(err error){
     if err!=nil { 
         fmt.Println(err)
-        os.Exit(1)
+        //os.Exit(1)
     }
 }

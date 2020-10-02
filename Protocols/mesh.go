@@ -3,8 +3,10 @@ package P2P
 import (
 	"fmt"
 	"sort"
+	"net/http"
 	"hash/fnv"
 	protocols "kv-store/Network"
+	database "kv-store/Database"
 )
 
 type Orchestrator struct {
@@ -17,6 +19,7 @@ type Orchestrator struct {
 	predicessor string
 	successor string
 	context []int
+	db database.DB
 }
 
 func NewOrchestrator(addr string, view []string) *Orchestrator {
@@ -26,6 +29,9 @@ func NewOrchestrator(addr string, view []string) *Orchestrator {
     oracle.view = view
     oracle.virtual_replicas = 8
     oracle.context = make([]int, len(view))
+
+    db := database.NewDB()
+    oracle.db = *db
 
     if len(view) < 100 {
     	oracle.ring_edge = 691 // prime number to mod hash
@@ -48,6 +54,7 @@ func (proto *Orchestrator) GetMatch(key string) string {
 	
 	// get the virtual node number
 	v_node := proto.FindNextNode(ring_val)
+	
 	// convert to physical shard
 	node := proto.virtual_translation[v_node]
 
@@ -103,6 +110,31 @@ func (proto *Orchestrator) UpdateView(new_view []string) {
 	sort.Strings(proto.view)
 }
 
+// Database functions that the high level node package queries
+func (oracle *Orchestrator) Get(Key string) ([]byte, error) {
+
+	return oracle.db.Get(Key)
+}
+
+func (oracle *Orchestrator) Put(Key, Value string) error {
+
+	owner := oracle.GetMatch(Key)
+
+	fmt.Println(owner)
+
+	return oracle.db.Put(Key, Value)
+}
+
+func (oracle *Orchestrator) Delete(Key string) ([]byte, error) {
+	fmt.Println("Deleting key")
+
+	return nil, nil
+}
+
+func (oracle *Orchestrator) AllPairs(w http.ResponseWriter) {
+	oracle.db.AllPairs(w)
+}
+
 // simple protocol to propogate a message from the start node to the last
 // node. 
 type Chain struct {
@@ -127,7 +159,7 @@ func (proto *Chain) ChainMsg(oracle Orchestrator, udp protocols.UDP) error {
 	}
 	
 	proto.msg = "Are you up?"
-	proto.action = "echo"
+	proto.action = "signal"
 	proto.num_packets = 1
 	proto.timeout = 60
 
