@@ -24,19 +24,16 @@ func NewDB() *DB {
 
 func (db *DB) Get(Key string) ([]byte, error) {
 	got, getErr := db.kv.Get([]byte(Key))
-
 	return got, getErr
 }
 
-func (db *DB) Put(Key, Value string) error {
+func (db *DB) Put(Key, Value string) {
 
-    insertErr := db.kv.Put([]byte(Key), []byte(Value))
-    if insertErr != nil {
+    db.kv.Put([]byte(Key), []byte(Value))
+    /*if insertErr != nil {
         fmt.Println("can't Put on open DB:", insertErr)
         return insertErr
-    }
-
-    return nil
+    }*/
 }
 
 /*func (db *DB) Delete() {
