@@ -2,7 +2,7 @@ package P2P
 
 import (
 	"fmt"
-	netutil "kv-store/Network"
+	consensus "kv-store/Consensus"
 )
 
 // simple protocol to propogate a message from the start node to the last
@@ -23,7 +23,7 @@ func NewChainMessager() *Chain {
 
 // Define a start node by choosing the smallest ring hash, then send a message
 // to the next phyical node in the ring.
-func (proto *Chain) ChainMsg(oracle Orchestrator, udp netutil.UDP) error {
+func (proto *Chain) ChainMsg(oracle Orchestrator, con consensus.ConsensusEngine) error {
 
 	if len(oracle.view) == 1 {
 		return nil
@@ -44,11 +44,11 @@ func (proto *Chain) ChainMsg(oracle Orchestrator, udp netutil.UDP) error {
 		initAddr := oracle.view[index+1]
 
 		// send message to this node
-		udp.Send(initAddr, proto.msg, proto.action, oracle.Context)
+		con.Send(initAddr, proto.msg, proto.action)
 		fmt.Println("Sending chain message to first node", initAddr)
 	}
 
-	udp.RecvFrom() // wait until this node gets a message
+	con.RecvFrom() // wait until this node gets a message
 
 	// if we are the last node, reset index 
 	if index == (len(oracle.view)-1) {
@@ -59,7 +59,7 @@ func (proto *Chain) ChainMsg(oracle Orchestrator, udp netutil.UDP) error {
 	if index != 0 {
 		addr := oracle.view[index+1]
 		fmt.Println("Sending chain message to next node", addr)
-		udp.Send(addr, proto.msg, proto.action, oracle.Context)
+		con.Send(addr, proto.msg, proto.action)
 	}
 
 	return nil

@@ -4,11 +4,10 @@ import (
     "fmt"
     "log"
     "strconv"
-    netutil "kv-store/Network"
     protocols "kv-store/Protocols"
+    consensus "kv-store/Consensus"
     database "kv-store/Database"
     "net/http"
-    "encoding/gob"
     "net"
     "errors"
     "strings"
@@ -20,10 +19,8 @@ import (
 // Define node structure in order to provide access to the database and 
 // network fucntions wrapper
 type Node struct {
-    udp netutil.UDP
-    tcp netutil.TCP
     oracle protocols.Orchestrator
-    c_engine protocols.CausalEngine
+    c_engine consensus.ConsensusEngine
     id string
     ip string
     index int
@@ -33,21 +30,33 @@ type Node struct {
     buffer string
 }
 
-// initialize the key-value store
-func (node *Node) Init() error {
-
+func ParseEnv() (string, []string, string, int, int, error) {
     // exctract the initial view of the system from the os environment
     addr := os.Getenv("ADDRESS")
 
     if addr == "" {
         err := fmt.Errorf("os environment variables not set")
-        return err
+        panic(err)
     }
 
     view := strings.Split(os.Getenv("VIEW"), ",")
     repl_factor, _ := strconv.Atoi(os.Getenv("REPL_FACTOR"))
     ip := strings.Split(addr, ":")[0]
     port, _ := strconv.Atoi(strings.Split(addr, ":")[1])
+
+    return addr, view, ip, port, repl_factor, nil
+}
+
+// initialize the key-value store
+func NewNode() (*Node, error) {
+    node := new(Node)
+
+    addr, view, ip, port, repl_factor, err := ParseEnv()
+
+    if err != nil {
+        return node, err
+    }
+    
     node.id = addr
     node.peers = view
 
@@ -55,40 +64,37 @@ func (node *Node) Init() error {
     db := database.NewDB()
     node.db = *db
 
-    // create a udp utility
-    udp := new(netutil.UDP)
-    udp.Init(ip, port, 13800, 1024)
-    node.udp = *udp
+    oracle := protocols.NewOrchestrator(node.id, node.peers, repl_factor)
+    node.oracle = *oracle
+
+    c_engine := consensus.NewConsensusEngine(ip, port, node.oracle.NumReplicas(), node.peers)
+    node.c_engine = *c_engine
+
+    node.oracle.InitiateConsensus(node.c_engine)
 
     // construct function mapping 
     m := map[string]interface{} {
-        "signal": node.udp.Signal,
+        "signal": node.c_engine.Signal,
         "read": "",
         "put": node.RemotePut,
         "get": node.RemoteGet,
     }
     node.actions = m
 
-    oracle := protocols.NewOrchestrator(node.id, node.peers, repl_factor, node.udp)
-    node.oracle = *oracle
-
-    c_engine := protocols.NewCausalEngine(0)
-    node.c_engine = *c_engine
-
-    return nil
+    return node, nil
 }
 
 // This function listens to clients as a go routine and hands off
 // any requests to the request handler.
 func (node *Node) ServerDaemon() error {
     
-    p := make([]byte, node.udp.Buffer)
-    oob := make([]byte, node.udp.Buffer)
+    p := make([]byte, 1024)
+    oob := make([]byte, 1024)
     buffer := bytes.NewBuffer(p)
 
     // listen to all addresses
     addr := net.UDPAddr{
-        Port: node.udp.Recv_port,
+        Port: node.c_engine.Net.Port,
         IP: net.ParseIP("0.0.0.0"),
     }
 
@@ -109,7 +115,7 @@ func (node *Node) ServerDaemon() error {
         }
 
         if len(buffer.Bytes()) > 0 {
-            go node.MessageHandler(*buffer, conn) // determine what to do with this packet
+            go node.MessageHandler(*buffer) // determine what to do with this packet
         }
     }
 
@@ -117,18 +123,12 @@ func (node *Node) ServerDaemon() error {
 }
 
 // Handle internal messages between shards and replicas
-func (node *Node) MessageHandler(buffer bytes.Buffer, conn *net.UDPConn) error {
-    var msg_decode netutil.Msg
+func (node *Node) MessageHandler(buffer bytes.Buffer) error {
+    msg_decode := node.c_engine.Net.Decode(buffer)
 
-    d := gob.NewDecoder(&buffer)
-    
-    if err := d.Decode(&msg_decode); err != nil {
-      panic(err)
-    }
+    // update vector clock
+    node.c_engine.Increment(msg_decode.SrcAddr)
 
-    node.HandleContext(msg_decode.Context) // resolve causal conflicts
- 
-    fmt.Println("Decoded Struct \n", msg_decode,"\n",)
     action := string(msg_decode.Action)
 
    // loop through actions map
@@ -148,11 +148,11 @@ func (node *Node) MessageHandler(buffer bytes.Buffer, conn *net.UDPConn) error {
             v.(func(string, string))(key, val)
 
         case "get":
-            v.(func(*net.UDPConn, string, string))(conn, msg_decode.SrcAddr, msg_decode.Message)
+            v.(func(string, string))(msg_decode.SrcAddr, msg_decode.Message)
 
         case "read":
             // publish a message to the causal consensus engine
-            node.c_engine.Publish(msg_decode)
+            node.c_engine.Deliver(msg_decode)
             
         default:
             fmt.Println("case_default")
@@ -163,13 +163,8 @@ func (node *Node) MessageHandler(buffer bytes.Buffer, conn *net.UDPConn) error {
    return nil
 }
 
-// Compare two vector clocks when a version conflict is realized
-func (node *Node) HandleContext(context []int) {
-    fmt.Println("test")
-}
-
 // This node has a specified key, retreive it and send it back to client node
-func (node *Node) RemoteGet(conn *net.UDPConn, src_addr string, key string) {
+func (node *Node) RemoteGet(src_addr string, key string) {
     got, err := node.db.Get(key)
 
     if err != nil {
@@ -179,15 +174,14 @@ func (node *Node) RemoteGet(conn *net.UDPConn, src_addr string, key string) {
     msg := string(got)
     action := "read"
 
+    fmt.Println("sending message back to source", src_addr)
     // send value back to source node
-    node.udp.Send(src_addr, msg, action, node.oracle.Context)
+    node.c_engine.Send(src_addr, msg, action)
 }
 
 // Insert the key, value pair into our local database
 func (node *Node) RemotePut(key string, val string) {
     fmt.Println("putting key->val into my database...")
-
-    // context.ValidWrite(msg_decode.Context, node.oracle.Context)
 
     node.db.Put(key, val) 
 }
@@ -256,12 +250,8 @@ func (node *Node) getHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    var req float32  = 0.66
-    consensus_req := int(float32(node.oracle.NumReplicas()) * req)
-    fmt.Println("we need", consensus_req, "in order to perform consensus")
-
-    // start causel engine
-    node.c_engine = *protocols.NewCausalEngine(consensus_req)
+    // start causal engine
+    node.c_engine.NewEventStream()
 
     // Request this key from each replica in the correct shard
     is_local := node.oracle.Get(thisKey.Key)
@@ -270,14 +260,14 @@ func (node *Node) getHandler(w http.ResponseWriter, r *http.Request) {
     if is_local {
         got, _ := node.db.Get(thisKey.Key)
         strEntry := string(got[:])
-        my_cpy := netutil.Msg{SrcAddr:"", Message:strEntry, Action:"", Context:node.oracle.Context}
-        
-        node.c_engine.Publish(my_cpy)
+
+        my_cpy := node.c_engine.Encode(node.ip, strEntry, "")
+        node.c_engine.Deliver(my_cpy)
     }
 
-    correct_read := node.c_engine.OrderEvents()
+    result := node.c_engine.OrderEvents() // blocking call
 
-    output, err := json.Marshal(correct_read.Message)
+    output, err := json.Marshal(result.Message)
     if err != nil {
         http.Error(w, err.Error(), 500)
         return
@@ -295,16 +285,15 @@ func main() {
     fmt.Println("Using port:13800")
 
     // create the node instance
-    var node Node
-    nodeStatus := node.Init()
+    node, nodeStatus := NewNode()
     errorHandler(nodeStatus)
 
     // run the server daemon in the background
     go node.ServerDaemon()
     
     // use the peer to peer connectivity protocol to ensure all nodes up
-    p2p := protocols.NewChainMessager()
-    p2p.ChainMsg(node.oracle, node.udp) // wait till all replicas are up
+    //p2p := protocols.NewChainMessager()
+    //p2p.ChainMsg(node.oracle, node.c_engine) // wait till all replicas are up
 
     // returns the contents of the database and any node info
     http.HandleFunc("/kv-store/snapshot", node.stateHandler)

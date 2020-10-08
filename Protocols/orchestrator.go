@@ -5,8 +5,7 @@ import (
 	"sort"
 	"hash/fnv"
 	"encoding/json"
-	netutil "kv-store/Network"
-	protocols "kv-store/Network"
+	consensus_engine "kv-store/Consensus"
 )
 
 type Orchestrator struct {
@@ -19,18 +18,15 @@ type Orchestrator struct {
 	v_shards []int                      // map of virtual nodes to physical nodes
 	virtual_translation map[int]int     // translation of virtual shards to physical
 	ring_edge int
-	Context []int
-	udp netutil.UDP
+	consensus consensus_engine.ConsensusEngine
 }
 
-func NewOrchestrator(addr string, view []string, repl_factor int, udp protocols.UDP) *Orchestrator {
+func NewOrchestrator(addr string, view []string, repl_factor int) *Orchestrator {
     oracle := new(Orchestrator)
     oracle.addr = addr
     oracle.view = view
     oracle.virtual_factor = 8
     oracle.repl_factor = repl_factor
-    oracle.Context = make([]int, len(view))
-    oracle.udp = udp
 
     if len(view) < 100 {
     	oracle.ring_edge = 691 // prime number to mod hash
@@ -44,6 +40,11 @@ func NewOrchestrator(addr string, view []string, repl_factor int, udp protocols.
     oracle.UpdateView(oracle.view, oracle.repl_factor) // create node to shard mapping
 
     return oracle
+}
+
+// Set the consensus engine field
+func (oracle *Orchestrator) InitiateConsensus(c consensus_engine.ConsensusEngine) {
+	oracle.consensus = c
 }
 
 //
@@ -176,7 +177,7 @@ func (oracle *Orchestrator) KeyOp(token string, msg string, action string) bool 
 		if node == oracle.addr {
 			local = true
 		} else { 
-			go oracle.udp.Send(node, msg, action, oracle.Context) // send key-val pair to correct replicas
+			go oracle.consensus.Send(node, msg, action) // send key-val pair to correct replicas
 		}
 	}
 

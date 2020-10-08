@@ -18,10 +18,16 @@ type Network interface {
     ServerDaemon()
 }
 
+type Msg struct {
+	SrcAddr string
+	Message string
+    Action string
+    Context map[string]int
+}
+
 type UDP struct {
 	Addr string
-    Send_port int
-    Recv_port int
+    Port int
     Buffer int
     timeout int
 }
@@ -32,26 +38,34 @@ type TCP struct {
     Timeout int
 }
 
-type Msg struct {
-	SrcAddr string
-	Message string
-    Action string
-    Context []int
-}
-
 // used to implement a recv from blocking call
 var wait chan struct{}
 
 //
-func (udp *UDP) Init(s_addr string, s_port int, r_port int, buffer int) {
+func (udp *UDP) Init(s_addr string, port int, buffer int) {
 	udp.Addr = s_addr
-	udp.Send_port = s_port
-	udp.Recv_port = r_port
+	udp.Port = port
 	udp.Buffer = buffer
 }
 
+func (udp *UDP) Decode(buffer bytes.Buffer) Msg {
+	var msg_decode Msg
+
+    d := gob.NewDecoder(&buffer)
+    
+    if err := d.Decode(&msg_decode); err != nil {
+      panic(err)
+    }
+
+    return msg_decode
+}
+
+func (udp *UDP) Encode(src string, msg string, action string, context map[string]int) Msg {
+	return Msg{SrcAddr:src, Message:msg, Action:action, Context:context}
+}
+
 //
-func(udp *UDP) FormatAddr(addr string) string {
+func (udp *UDP) FormatAddr(addr string) string {
 	if strings.Contains(addr, ":") {
 		host := strings.Split(addr, ":")[0]
 
@@ -60,7 +74,7 @@ func(udp *UDP) FormatAddr(addr string) string {
 	return addr
 } 
 
-func (udp *UDP) FormatMsg(msg string, action string, context []int) []byte {
+func (udp *UDP) FormatMsg(msg string, action string, context map[string]int) []byte {
 	Msg := Msg{SrcAddr:udp.Addr, Message:msg, Action:action, Context:context} // create new message 
 
 	var buffer bytes.Buffer
@@ -82,13 +96,13 @@ func (udp *UDP) RecvFrom() {
 }
 
 //
-func (udp *UDP) Send(raw_addr string, msg string, action string, context []int) error {
+func (udp *UDP) Send(raw_addr string, msg string, action string, context map[string]int) error {
 
     host := udp.FormatAddr(raw_addr)
     payload := udp.FormatMsg(msg, action, context)
 
     addr := net.UDPAddr{
-        Port: udp.Send_port,
+        Port: udp.Port,
         IP: net.ParseIP(host),
     }
 
@@ -118,7 +132,7 @@ func (udp *UDP) Signal() {
 }
 
 //
-func (udp *UDP) SendResponse(conn *net.UDPConn, host_addr string, msg string, action string, context []int) {
+func (udp *UDP) SendResponse(conn *net.UDPConn, host_addr string, msg string, action string, context map[string]int) {
 	payload := udp.FormatMsg(msg, action, context)
 
     addr, _ := net.ResolveUDPAddr("udp", host_addr)
