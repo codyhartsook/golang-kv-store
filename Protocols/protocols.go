@@ -2,28 +2,84 @@ package P2P
 
 import (
 	"fmt"
+	"time"
 	consensus "kv-store/Consensus"
 )
 
 // simple protocol to propogate a message from the start node to the last
 // node. 
-type Chain struct {
+type Protocol struct {
 	msg string
 	action string
 	timeout int
 	num_packets int
+	state string
+	gossip_interval_seconds float32
+	addr string
 }
 
 //
-func NewChainMessager() *Chain {
-	chain := new(Chain)
+func NewProtocol(node_addr string) *Protocol {
+	p := new(Protocol)
+	p.gossip_interval_seconds = 2.0
+	p.addr = node_addr
 
-	return chain
+	return p
+}
+
+// Algorithm: Send message to each node in parrallel
+func (proto *Protocol) Broadcast(view []string, con consensus.ConsensusEngine) error {
+	proto.msg = "Broadcasting"
+	proto.action = "broadcast"
+
+	for _, node := range view {
+		go con.Send(node, proto.msg, proto.action)
+	}
+}
+
+/* Gossip protocol:
+	Select a frequency to gossip
+
+	At the start of each iteration, choose a peer at random and send vector clock and
+	database contents id 
+
+	if peer has different id and greater vector clock, update datastore
+*/
+func (proto *Protocol) StartGossip(oracle Orchestrator, con consensus.ConsensusEngine) error {
+	// choose a shard replica at random
+	// Run the gossip protocol
+	go doEvery(proto.gossip_interval_seconds*time.Millisecond, proto.SendGossip())
+}
+
+// scheduling function
+func doEvery(d time.Duration, f func(time.Time)) {
+	for x := range time.Tick(d) {
+		f(x)
+	}
+}
+
+func (proto *Protocol) SendGossip(oracle Orchestrator, con consensus.ConsensusEngine) error {
+	// choose random peer within shard
+	// send message to peer with vc and db id
+
+	// choose a shard replica at random
+	nodes := oracle.ShardReplicas(proto.addr)
+
+	rand.Seed(time.Now())
+	peer := nodes[rand.Intn(len(nodes))]
+}
+
+func (proto *Protocol) RecvGossip(oracle Orchestrator, con consensus.ConsensusEngine) error {
+
+	// if db id differs:
+		// compare vc to resolve
+
+	// resolve vcs
 }
 
 // Define a start node by choosing the smallest ring hash, then send a message
 // to the next phyical node in the ring.
-func (proto *Chain) ChainMsg(oracle Orchestrator, con consensus.ConsensusEngine) error {
+func (proto *Protocol) ChainMsg(oracle Orchestrator, con consensus.ConsensusEngine) error {
 
 	if len(oracle.view) == 1 {
 		return nil

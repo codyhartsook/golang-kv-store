@@ -65,6 +65,12 @@ func (oracle *Orchestrator) NumReplicas() int {
 	return replicas
 }
 
+func (oracle *Orchestrator) ShardReplicas(node string) []string {
+	shard := oracle.GetMatch(node)
+
+	return oracle.Shard_groups[shard]
+}
+
 // Put x nodes into y shards with even distribution
 func (oracle *Orchestrator) DistributeNodes(view []string, repl_factor int) [][]string { 
 	sort.Strings(view)
