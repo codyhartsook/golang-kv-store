@@ -52,6 +52,10 @@ func (c *ConsensusEngine) Send(raw_addr string, msg string, action string) {
 	c.Net.Send(raw_addr, msg, action, c.vector_clock)
 }
 
+func (c *ConsensusEngine) SendWithoutEvent(raw_addr string, msg string, action string) {
+	c.Net.Send(raw_addr, msg, action, c.vector_clock)
+}
+
 // wraper for the netutil function, is a blocking call
 func (c *ConsensusEngine) RecvFrom() {
 	c.Net.RecvFrom()
@@ -64,6 +68,10 @@ func (c *ConsensusEngine) Signal() {
 
 func (c *ConsensusEngine) Encode(src string, msg string, action string) netutil.Msg {
 	return c.Net.Encode(src, msg, action, c.vector_clock)
+}
+
+func (c *ConsensusEngine) PrintVC() {
+	fmt.Println(c.vector_clock)
 }
 
 // Provides a messaging construct for to implement Quorum replication among shards
@@ -108,8 +116,6 @@ func (c *ConsensusEngine) OrderEvents() netutil.Msg {
 	var highest_priority_msg = netutil.Msg{SrcAddr:"", Message:"", Action:"", Context:Nil}
 
 	for msg := range messages {
-
-		fmt.Println(msg)
 		
 		// if the value of the two messages are the same, dont check vectors
 		if c.IdenticalValue(highest_priority_msg.Message, msg.Message) {
@@ -154,22 +160,28 @@ func (c *ConsensusEngine) Increment(src_node string) {
 
 
 // Determine if the given vector clock causaly happened before my vector clock
-func (c *ConsensusEngine) CheckIndices(new_vc map[string]int, prev_vc map[string]int) bool {
+func (c *ConsensusEngine) CheckIndices(new_vc map[string]int, prev_vc map[string]int) (bool, bool) {
 
     // check each key, val to compare the greater history
+    nul := true
     for index, value := range prev_vc {
+
+    	if value != 0 {
+    		nul = false
+    	}
         
     	val, ok := new_vc[index]
+
 		if ok == false && value != 0 {
-			return false
+			return false, nul
 		} 
 
     	if ok && val < value {
-    		return false
+    		return false, nul
     	}
     }
  
-    return true
+    return true, nul
 }
 
 // compare two vector clocks and determine if the new clock -> old clock
@@ -186,15 +198,24 @@ func (c *ConsensusEngine) ValidDelivery(new_node string, new_vc map[string]int, 
         return false
     }
 
+    valid, empty := c.CheckIndices(new_vc, prev_vc) // compare element wise
+    
+    if valid && empty { // check if our vector clock is empty
+    	return true
+    }
+
     val, ok := prev_vc[new_node]
 
     if ok {
     	if val != (new_vc[new_node] + 1) { // compare first condition of causal broadcast
     		return false
     	}
-    } else {              // prev vector clock does not have this node index
-    	return true
     }
-    return c.CheckIndices(new_vc, prev_vc) // compare second condition of causal broadcast
+    
+    return valid
+}
+
+func (c *ConsensusEngine) ValidDeliveryLocal(new_node string, new_vc map[string]int) bool {
+	return c.ValidDelivery(new_node, new_vc, c.addr, c.vector_clock)
 }
 

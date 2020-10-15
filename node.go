@@ -21,6 +21,7 @@ import (
 type Node struct {
     oracle protocols.Orchestrator
     c_engine consensus.ConsensusEngine
+    my_protocols protocols.Protocol
     id string
     ip string
     index int
@@ -58,6 +59,7 @@ func NewNode() (*Node, error) {
     }
     
     node.id = addr
+    node.ip = ip
     node.peers = view
 
     // create database
@@ -72,12 +74,16 @@ func NewNode() (*Node, error) {
 
     node.oracle.InitiateConsensus(node.c_engine)
 
+    node.my_protocols = *protocols.NewProtocol(node.ip, node.oracle.ShardReplicas(node.ip))
+    //my_protocols.StartGossip(node.oracle.ShardReplicas(node.ip))
+
     // construct function mapping 
     m := map[string]interface{} {
-        "signal": node.c_engine.Signal,
-        "read": "",
-        "put": node.RemotePut,
-        "get": node.RemoteGet,
+        "signal":  node.c_engine.Signal,
+        "read":    "",
+        "put":     node.RemotePut,
+        "get":     node.RemoteGet,
+        "gossip" : node.my_protocols.RecvGossip,
     }
     node.actions = m
 
@@ -126,9 +132,6 @@ func (node *Node) ServerDaemon() error {
 func (node *Node) MessageHandler(buffer bytes.Buffer) error {
     msg_decode := node.c_engine.Net.Decode(buffer)
 
-    // update vector clock
-    node.c_engine.Increment(msg_decode.SrcAddr)
-
     action := string(msg_decode.Action)
 
    // loop through actions map
@@ -145,14 +148,24 @@ func (node *Node) MessageHandler(buffer bytes.Buffer) error {
         case "put":
             key := strings.Split(msg_decode.Message, ":")[0]
             val := strings.Split(msg_decode.Message, ":")[1]
+
+            // update vector clock
+            node.c_engine.Increment(msg_decode.SrcAddr)
+
             v.(func(string, string))(key, val)
 
         case "get":
+            // update vector clock
+            node.c_engine.Increment(msg_decode.SrcAddr)
+            
             v.(func(string, string))(msg_decode.SrcAddr, msg_decode.Message)
 
         case "read":
             // publish a message to the causal consensus engine
             node.c_engine.Deliver(msg_decode)
+
+        case "gossip":
+            v.(func(string, string, map[string]int, consensus.ConsensusEngine))(msg_decode.SrcAddr, msg_decode.Message, msg_decode.Context, node.c_engine)
             
         default:
             fmt.Println("case_default")
@@ -292,8 +305,9 @@ func main() {
     go node.ServerDaemon()
     
     // use the peer to peer connectivity protocol to ensure all nodes up
-    //p2p := protocols.NewChainMessager()
+    go node.my_protocols.RunGossipProtocol(node.c_engine)
     //p2p.ChainMsg(node.oracle, node.c_engine) // wait till all replicas are up
+
 
     // returns the contents of the database and any node info
     http.HandleFunc("/kv-store/snapshot", node.stateHandler)
