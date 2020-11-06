@@ -5,10 +5,10 @@ import (
 	"errors"
 	"fmt"
 	database "kv-store/Database"
+	log "kv-store/Logging"
 	msg "kv-store/Messages"
 	consensus "kv-store/SystemServices/Consensus"
 	protocols "kv-store/SystemServices/SysProtocols"
-	log "kv-store/Logging"
 	"net"
 	"os"
 	"strconv"
@@ -102,7 +102,7 @@ func NewNode() (*Node, error) {
 
 // Info -> Print some node metadata
 func Info() {
-	logger.("Getting info for this node.")
+	logger.Write("Getting info for this node.")
 }
 
 // ServerDaemon -> listens to clients as a go routine and hands off
@@ -159,8 +159,8 @@ func (node *Node) MessageHandler(buffer bytes.Buffer) error {
 			v.(func())()
 
 		case "put":
-			key := strings.Split(msgDecode.Payload, ":")[0]
-			val := strings.Split(msgDecode.Payload, ":")[1]
+			key := strings.Split(msgDecode.PayloadToStr(), ":")[0]
+			val := strings.Split(msgDecode.PayloadToStr(), ":")[1]
 
 			// update vector clock
 			node.ConEngine.Increment(msgDecode.SrcAddr)
@@ -176,7 +176,7 @@ func (node *Node) MessageHandler(buffer bytes.Buffer) error {
 			node.ConEngine.Deliver(msgDecode)
 
 		case "gossip":
-			v.(func(msg.Msg, consensus.ConEngine))(msgDecode, node.ConEngine)
+			v.(func(msg.Msg, consensus.ConEngine, database.DB))(msgDecode, node.ConEngine, node.DB)
 
 		default:
 			logger.Write("case_default")
@@ -188,15 +188,15 @@ func (node *Node) MessageHandler(buffer bytes.Buffer) error {
 
 // RemoteGet -> This node has a specified key, retreive it and send it back to client node
 func (node *Node) RemoteGet(Msg msg.Msg) {
-	got, _ := node.DB.Get(Msg.Payload)
+	got, _ := node.DB.Get(Msg.PayloadToStr())
 
 	src := Msg.SrcAddr
-	Msg.Payload = string(got)
+	Msg.Payload = got
 	Msg.SrcAddr = node.ID
 	Msg.Action = "read"
 
 	// send value back to source node
-	logger.Write("sending retrieved token: " + Msg.Payload, + " back to " + src)
+	logger.Write("sending retrieved token: " + Msg.PayloadToStr() + " back to " + src)
 	node.ConEngine.Send(src, Msg)
 }
 

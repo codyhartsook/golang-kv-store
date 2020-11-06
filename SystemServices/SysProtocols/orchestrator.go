@@ -217,7 +217,7 @@ func (oracle *Orchestrator) GetMatch(key string) int {
 // KeyOp -> general key operationfunction, find the correct shard then apply given action
 func (oracle *Orchestrator) KeyOp(Msg msg.Msg) bool {
 	// find which shard this token belongs to
-	token := strings.Split(Msg.Payload, ":")[0]
+	token := strings.Split(Msg.PayloadToStr(), ":")[0]
 	shard := oracle.GetMatch(token)
 	local := false
 

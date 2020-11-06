@@ -46,7 +46,7 @@ func (h *handler) handleGet(w http.ResponseWriter, r *http.Request) {
 	eventID := h.nodeRef.ConEngine.NewEventStream()
 	thisMsg := msg.Msg{
 		SrcAddr: h.nodeRef.IP,
-		Payload: Key,
+		Payload: []byte(Key),
 		ID:      eventID,
 		Action:  "get",
 	}
@@ -59,7 +59,7 @@ func (h *handler) handleGet(w http.ResponseWriter, r *http.Request) {
 
 		got, _ := h.nodeRef.DB.Get(Key)
 		strEntry := string(got[:])
-		thisMsg.Payload = strEntry
+		thisMsg.Payload = []byte(strEntry)
 
 		myCpy := h.nodeRef.ConEngine.Encode(thisMsg)
 		h.nodeRef.ConEngine.Deliver(myCpy)
@@ -93,7 +93,7 @@ func (h *handler) handlePut(w http.ResponseWriter, r *http.Request) {
 
 	thisMsg := msg.Msg{
 		SrcAddr: h.nodeRef.IP,
-		Payload: (newEntry.Key + ":" + newEntry.Value),
+		Payload: []byte(newEntry.Key + ":" + newEntry.Value),
 		ID:      "",
 		Action:  "put",
 	}

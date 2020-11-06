@@ -137,7 +137,8 @@ func (c *ConEngine) Deliver(newMsg msg.Msg) error {
 func (c *ConEngine) OrderEvents(id string) (msg.Msg, error) {
 
 	var Nil map[string]int
-	var highestPriorityMsg = msg.Msg{SrcAddr: "", Payload: "", ID: "", Action: "", Context: Nil}
+	var p []byte
+	var highestPriorityMsg = msg.Msg{SrcAddr: "", Payload: p, ID: "", Action: "", Context: Nil}
 
 	messages, ok := c.streams[id]
 	if !ok {
@@ -173,8 +174,8 @@ func (c *ConEngine) OrderEvents(id string) (msg.Msg, error) {
 
 // IdenticalValue -> if the message value is the same we dont need to
 // check vector clocks
-func (c *ConEngine) IdenticalValue(m1 string, m2 string) bool {
-	if m1 != m2 {
+func (c *ConEngine) IdenticalValue(m1, m2 []byte) bool {
+	if string(m1) != string(m2) {
 		return false
 	}
 	return true

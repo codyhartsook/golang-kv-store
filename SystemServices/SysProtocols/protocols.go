@@ -2,9 +2,12 @@ package protocols
 
 import (
 	"fmt"
+	db "kv-store/Database"
+	log "kv-store/Logging"
 	msg "kv-store/Messages"
 	consensus "kv-store/SystemServices/Consensus"
 	"math/rand"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -32,6 +35,9 @@ func NewProtocol(nodeAddr string, shardReplicas []string) *Protocol {
 	p.addr = nodeAddr
 	p.shardReplicas = shardReplicas
 
+	logger = *log.New(nil) // create logger
+	go logger.Start()
+
 	return p
 }
 
@@ -43,7 +49,7 @@ func (proto *Protocol) Broadcast(view []string, con consensus.ConEngine) {
 	for _, node := range view {
 		thisMsg := msg.Msg{
 			SrcAddr: proto.addr,
-			Payload: proto.msg,
+			Payload: []byte(proto.msg),
 			ID:      "",
 			Action:  proto.action,
 		}
@@ -53,11 +59,12 @@ func (proto *Protocol) Broadcast(view []string, con consensus.ConEngine) {
 
 // scheduling function
 func (proto *Protocol) doEvery(d time.Duration, f func(consensus.ConEngine), con consensus.ConEngine) {
-	for x := range time.Tick(d) {
-		f(con)
+	for range time.Tick(d) {
+
+		f(con) // call given function
 
 		if len(proto.notSeen) == 0 {
-			fmt.Println("round done.", x)
+			logger.Write("Gossip round done.")
 			break
 		}
 	}
@@ -65,23 +72,21 @@ func (proto *Protocol) doEvery(d time.Duration, f func(consensus.ConEngine), con
 
 // InitGossipProtocol -> Every 2 seconds start a gossip round
 func (proto *Protocol) InitGossipProtocol(con consensus.ConEngine) {
-	gossipRounds := 2000
+	gossipRounds := 2000 // 2 seconds between rounds
 	interval := time.Duration(gossipRounds) * time.Millisecond
 
-	// start a gossip round every 2 seconds
-	for x := range time.Tick(interval) {
+	// start a gossip round every time interval
+	for range time.Tick(interval) {
 		rand.Seed(time.Now().UTC().UnixNano())
 
 		i := rand.Intn(len(proto.shardReplicas))
 		startNode := proto.shardReplicas[i]
 		ip := strings.Split(startNode, ":")[0]
 
-		fmt.Println(ip, proto.addr)
-
 		if ip == proto.addr {
-			fmt.Println("Gossip round starting", x)
+			logger.Write("Gossip round starting")
 
-			proto.startGossipRound(con)
+			go proto.startGossipRound(con)
 		}
 	}
 }
@@ -92,6 +97,7 @@ func (proto *Protocol) startGossipRound(con consensus.ConEngine) {
 	proto.notSeen = make([]string, len(proto.shardReplicas))
 	copy(proto.notSeen, proto.shardReplicas)
 
+	// update which nodes we still need to reach
 	for i, node := range proto.shardReplicas {
 		ip := strings.Split(node, ":")[0]
 		if ip == proto.addr {
@@ -99,7 +105,7 @@ func (proto *Protocol) startGossipRound(con consensus.ConEngine) {
 		}
 	}
 
-	proto.gossipIntervalMs = 100 // 200 milisecond delay between gossips
+	proto.gossipIntervalMs = 100 // 100 milisecond delay between gossips
 	rand.Seed(time.Now().UTC().UnixNano())
 	interval := time.Duration(proto.gossipIntervalMs) * time.Millisecond
 
@@ -112,45 +118,41 @@ func (proto *Protocol) sendGossip(con consensus.ConEngine) {
 	// choose a shard replica at random
 	peer := proto.chooseNode()
 
-	// get lock
+	// get lock then release when function returns
 	gossiping.Lock()
+	defer gossiping.Unlock()
 
 	thisMsg := msg.Msg{
 		SrcAddr: proto.addr,
-		Payload: "database contents ID",
+		Payload: []byte("database contents ID"),
 		ID:      "",
 		Action:  "gossip",
 	}
 
 	// send message to peer with vc and db id
-	fmt.Println("sending gossip to", peer)
+	logger.Write("sending gossip to " + peer)
 	con.SendWithoutEvent(peer, thisMsg)
-
-	// state transfer
-
-	// release lock
-	gossiping.Unlock()
 }
 
 // RecvGossip -> must put a lock on gossiping so only one node at a time can gossip with us
-func (proto *Protocol) RecvGossip(Msg msg.Msg, con consensus.ConEngine) {
+func (proto *Protocol) RecvGossip(Msg msg.Msg, con consensus.ConEngine, myDB db.DB) {
 
-	// get lock
+	// get lock then release when function returns
 	gossiping.Lock()
+	defer gossiping.Unlock()
 	// if db id differs:
 	// compare vc to resolve
 
-	fmt.Println("gossiping with", Msg.SrcAddr)
+	logger.Write("gossiping with " + Msg.SrcAddr)
 
 	// resolve vcs
 	needToUpdate := con.ValidDeliveryLocal(Msg.SrcAddr, Msg.Context)
+	logger.Write("checking if we need to update our database" + strconv.FormatBool(needToUpdate))
 
-	fmt.Println("Do we need to update our datastore:", needToUpdate)
+	if needToUpdate {
+		// compare and update
+	}
 
-	con.PrintVC()
-
-	// release lock
-	gossiping.Unlock()
 }
 
 // chooseNode ->
@@ -161,7 +163,6 @@ func (proto *Protocol) chooseNode() string {
 	}
 
 	i := rand.Intn(len(proto.notSeen))
-
 	peer := proto.notSeen[i]
 	proto.notSeen = proto.deleteIndex(i)
 
@@ -204,7 +205,7 @@ func (proto *Protocol) ChainMsg(oracle Orchestrator, con consensus.ConEngine) er
 		// send message to this node
 		thisMsg := msg.Msg{
 			SrcAddr: proto.addr,
-			Payload: proto.msg,
+			Payload: []byte(proto.msg),
 			ID:      "",
 			Action:  proto.action,
 		}
@@ -225,7 +226,7 @@ func (proto *Protocol) ChainMsg(oracle Orchestrator, con consensus.ConEngine) er
 		fmt.Println("Sending chain message to next node", addr)
 		thisMsg := msg.Msg{
 			SrcAddr: proto.addr,
-			Payload: proto.msg,
+			Payload: []byte(proto.msg),
 			ID:      "",
 			Action:  proto.action,
 		}
