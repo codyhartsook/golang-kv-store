@@ -83,7 +83,7 @@ func NewNode() (*Node, error) {
 	}
 	node.ConEngine = *consensus.NewConEngine(ip, port, numReps, node.peers)
 	node.Oracle.AddConsensusEngine(node.ConEngine)
-	node.Protocols = *protocols.NewProtocol(node.IP, peerReps)
+	node.Protocols = *protocols.NewProtocol(node.IP, peerReps, node.DB)
 
 	// construct function mapping
 	node.actions = map[string]interface{}{

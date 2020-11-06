@@ -5,7 +5,6 @@ import (
 	log "kv-store/Logging"
 	msg "kv-store/Messages"
 	netutil "kv-store/SystemServices/Network"
-	"math"
 	"strconv"
 	"strings"
 	"sync"
@@ -14,18 +13,14 @@ import (
 
 var logger log.AsyncLog
 
-//var message chan msg.Msg // buffered channel of messages
-
 // ConEngine ->
 type ConEngine struct {
 	vectorClock     map[string]int
 	messageCapacity int
 	streams         map[string]chan msg.Msg
-	quorumReq       float64
-	consensusReq    int
+	quorumReq       int
 	addr            string
 	Net             netutil.UDP
-	Msg             msg.Msg
 }
 
 // NewConEngine -> Construct a new consensus manager
@@ -34,17 +29,19 @@ func NewConEngine(ip string, port int, replicas int, view []string) *ConEngine {
 	c.vectorClock = make(map[string]int)
 	c.streams = make(map[string]chan msg.Msg)
 	c.addr = ip
+
 	logger = *log.New(nil) // create logger
 	go logger.Start()
 
+	// initialize vector clock
 	for _, node := range view {
 		key := strings.Split(node, ":")[0]
 		c.vectorClock[key] = 0
 	}
 
-	c.quorumReq = 0.66
-	c.consensusReq = int(math.Round(((float64(replicas) * c.quorumReq) + 0.5)))
-	fmt.Printf("Using quorum requirement of %d replicas with a view of %d replicas\n", c.consensusReq, replicas)
+	// we require a majority of replicas to respond
+	c.quorumReq = int(replicas/2) + 1
+	fmt.Printf("Using quorum requirement of %d replicas with a view of %d replicas\n", c.quorumReq, replicas)
 
 	// create a udp utility
 	udp := new(netutil.UDP)
@@ -79,7 +76,7 @@ func (c *ConEngine) Signal() {
 	c.Net.Signal()
 }
 
-// Encode ->
+// Encode -> Add our vector clock to the message
 func (c *ConEngine) Encode(Msg msg.Msg) msg.Msg {
 	Msg.Context = c.vectorClock
 	return Msg
@@ -90,15 +87,26 @@ func (c *ConEngine) PrintVC() {
 	fmt.Println(c.vectorClock)
 }
 
+// generateID -> return a unique id for this node at this time
 func (c *ConEngine) generateID() string {
 	t := strconv.FormatInt(time.Now().UnixNano(), 10)
 	id := (t + c.addr)
 	return id
 }
 
+/*
+	The following functions implement causal broadcast by utilizing vector clocks.
+
+	Causal broadcast algorithm: delivery valid iff
+		1. message from nodeA: c.vectorClock[nodeA] == remote_vc[nodeA] + 1
+
+		2. for each element c.vecor_clock <= remote_vc
+
+*/
+
 // NewEventStream -> Provides a messaging construct to implement Quorum replication among shards
 func (c *ConEngine) NewEventStream() string {
-	c.messageCapacity = c.consensusReq
+	c.messageCapacity = c.quorumReq
 
 	id := c.generateID()
 	message := make(chan msg.Msg, c.messageCapacity)
@@ -118,12 +126,10 @@ func (c *ConEngine) Deliver(newMsg msg.Msg) error {
 	thisChan, ok := c.streams[newMsg.ID]
 
 	if !ok {
-		logger.Write("ID provided in message does not exist in map of channles " + newMsg.ID)
 		return fmt.Errorf("ID provided in message does not exist in map of channels %s", newMsg.ID)
 	}
 
 	select {
-	// Put this node into map of seen responses
 	case thisChan <- newMsg:
 		logger.Write("Message from " + newMsg.SrcAddr + " was accepted")
 	default:
@@ -134,6 +140,7 @@ func (c *ConEngine) Deliver(newMsg msg.Msg) error {
 }
 
 // OrderEvents -> Consume all messages in channel and compare causal context
+// before returning the most up to date read
 func (c *ConEngine) OrderEvents(id string) (msg.Msg, error) {
 
 	var Nil map[string]int
@@ -153,6 +160,7 @@ func (c *ConEngine) OrderEvents(id string) (msg.Msg, error) {
 		// if the value of the two messages are the same, dont check vectors
 		if !c.IdenticalValue(highestPriorityMsg.Payload, thisMsg.Payload) {
 			if c.ValidDelivery(thisMsg.SrcAddr, thisMsg.Context, highestPriorityMsg.SrcAddr, highestPriorityMsg.Context) {
+				// update which read we should return
 				highestPriorityMsg = thisMsg
 			}
 		}
@@ -164,7 +172,7 @@ func (c *ConEngine) OrderEvents(id string) (msg.Msg, error) {
 		}
 	}
 
-	// gain exclusive access to our map of channels before we delete
+	// gain exclusive access to our map of channels before we delete this stream id
 	m := &sync.Mutex{}
 	m.Lock()
 	defer m.Unlock()
@@ -181,10 +189,6 @@ func (c *ConEngine) IdenticalValue(m1, m2 []byte) bool {
 	return true
 }
 
-/*
-	The following functions implement causal broadcast by utilizing vector clocks.
-*/
-
 // Increment -> Update the vector clock for this node
 func (c *ConEngine) Increment(srcNode string) error {
 	_, ok := c.vectorClock[srcNode]
@@ -199,7 +203,7 @@ func (c *ConEngine) Increment(srcNode string) error {
 	return nil
 }
 
-// CheckIndices -> Determine if the given vector clock causaly happened before my vector clock
+// CheckIndices -> Determine if the first vector clock causaly happened before the second vector clock
 func (c *ConEngine) CheckIndices(newVC map[string]int, prevVC map[string]int) (bool, bool) {
 
 	// check each key, val to compare the greater history
@@ -226,13 +230,6 @@ func (c *ConEngine) CheckIndices(newVC map[string]int, prevVC map[string]int) (b
 
 // ValidDelivery -> compare two vector clocks and determine if the new clock -> old clock
 func (c *ConEngine) ValidDelivery(newNode string, newVC map[string]int, pevNode string, prevVC map[string]int) bool {
-	/*
-		Causal broadcast algorithm: delivery valid iff
-			1. message from nodeA: c.vectorClock[nodeA] == remote_vc[nodeA] + 1
-
-			2. for each element c.vecor_clock <= remote_vc
-
-	*/
 
 	if len(newVC) < len(prevVC) {
 		return false

@@ -1,8 +1,9 @@
 package db
 
 import (
+	"bytes"
+	"encoding/gob"
 	"fmt"
-	"net/http"
 
 	"github.com/ethereum/go-ethereum/core/rawdb"
 	"github.com/ethereum/go-ethereum/ethdb"
@@ -10,6 +11,7 @@ import (
 
 // DB -> database type
 type DB struct {
+	id int64
 	kv ethdb.Database
 }
 
@@ -17,7 +19,7 @@ type DB struct {
 func NewDB() *DB {
 	db := new(DB)
 	db.kv = rawdb.NewMemoryDatabase()
-
+	db.id = 0
 	return db
 }
 
@@ -35,18 +37,57 @@ func (db *DB) Put(Key, Value string) error {
 		fmt.Println("can't Put on open DB:", insertErr)
 		return insertErr
 	}
+
 	return nil
 }
 
-// AllPairs ->
-func (db *DB) AllPairs(w http.ResponseWriter) {
+// ToByteArray ->
+func (db *DB) ToByteArray() []byte {
 	// Iterate over the database
+	contents := make(map[string]string)
 	it := db.kv.NewIterator([]byte{}, []byte{})
+
 	for it.Next() {
 		thisKey := string(it.Key()[:])
 		thisVal := string(it.Value()[:])
-		fmt.Println(thisKey, thisVal)
 
-		fmt.Fprintf(w, "    %s -> %s\n", thisKey, thisVal)
+		contents[thisKey] = thisVal
+	}
+
+	b := new(bytes.Buffer)
+	e := gob.NewEncoder(b)
+
+	// Encoding the contents map
+	err := e.Encode(contents)
+	if err != nil {
+		panic(err)
+	}
+	return b.Bytes()
+}
+
+// ByteArrayToMap ->
+func (db *DB) ByteArrayToMap(contents []byte) map[string]string {
+	b := new(bytes.Buffer)
+	var decodedMap map[string]string
+	d := gob.NewDecoder(b)
+
+	// Decoding the serialized data
+	err := d.Decode(&decodedMap)
+	if err != nil {
+		panic(err)
+	}
+
+	return decodedMap
+}
+
+// MergeDB ->
+func (db *DB) MergeDB(newContents map[string]string) {
+	var err error
+	for k, v := range newContents {
+		err = db.Put(k, v)
+
+		if err != nil {
+			panic(err)
+		}
 	}
 }

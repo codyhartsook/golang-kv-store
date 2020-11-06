@@ -21,19 +21,19 @@ type Protocol struct {
 	msg              string
 	action           string
 	timeout          int
-	numPackets       int
-	state            string
 	gossipIntervalMs float32
 	shardReplicas    []string
 	addr             string
 	notSeen          []string
+	dbRef            db.DB
 }
 
 // NewProtocol ->
-func NewProtocol(nodeAddr string, shardReplicas []string) *Protocol {
+func NewProtocol(nodeAddr string, shardReplicas []string, DB db.DB) *Protocol {
 	p := new(Protocol)
 	p.addr = nodeAddr
 	p.shardReplicas = shardReplicas
+	p.dbRef = DB
 
 	logger = *log.New(nil) // create logger
 	go logger.Start()
@@ -124,7 +124,7 @@ func (proto *Protocol) sendGossip(con consensus.ConEngine) {
 
 	thisMsg := msg.Msg{
 		SrcAddr: proto.addr,
-		Payload: []byte("database contents ID"),
+		Payload: proto.dbRef.ToByteArray(),
 		ID:      "",
 		Action:  "gossip",
 	}
@@ -140,8 +140,6 @@ func (proto *Protocol) RecvGossip(Msg msg.Msg, con consensus.ConEngine, myDB db.
 	// get lock then release when function returns
 	gossiping.Lock()
 	defer gossiping.Unlock()
-	// if db id differs:
-	// compare vc to resolve
 
 	logger.Write("gossiping with " + Msg.SrcAddr)
 
@@ -151,8 +149,8 @@ func (proto *Protocol) RecvGossip(Msg msg.Msg, con consensus.ConEngine, myDB db.
 
 	if needToUpdate {
 		// compare and update
+		myDB.MergeDB(myDB.ByteArrayToMap(Msg.Payload))
 	}
-
 }
 
 // chooseNode ->
@@ -190,7 +188,6 @@ func (proto *Protocol) ChainMsg(oracle Orchestrator, con consensus.ConEngine) er
 
 	proto.msg = "Are you up?"
 	proto.action = "signal"
-	proto.numPackets = 1
 	proto.timeout = 60
 
 	// determine which node we are in the ring
