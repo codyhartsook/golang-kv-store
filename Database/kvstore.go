@@ -1,8 +1,7 @@
 package db
 
 import (
-	"bytes"
-	"encoding/gob"
+	"encoding/json"
 	"fmt"
 
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -32,9 +31,12 @@ func (db *DB) Get(Key string) ([]byte, error) {
 // Put ->
 func (db *DB) Put(Key, Value string) error {
 
+	if Key == "" {
+		return fmt.Errorf("Key can not be empty")
+	}
+
 	insertErr := db.kv.Put([]byte(Key), []byte(Value))
 	if insertErr != nil {
-		fmt.Println("can't Put on open DB:", insertErr)
 		return insertErr
 	}
 
@@ -42,7 +44,7 @@ func (db *DB) Put(Key, Value string) error {
 }
 
 // ToByteArray ->
-func (db *DB) ToByteArray() []byte {
+func (db *DB) ToByteArray() ([]byte, error) {
 	// Iterate over the database
 	contents := make(map[string]string)
 	it := db.kv.NewIterator([]byte{}, []byte{})
@@ -54,30 +56,15 @@ func (db *DB) ToByteArray() []byte {
 		contents[thisKey] = thisVal
 	}
 
-	b := new(bytes.Buffer)
-	e := gob.NewEncoder(b)
-
-	// Encoding the contents map
-	err := e.Encode(contents)
-	if err != nil {
-		panic(err)
-	}
-	return b.Bytes()
+	return json.Marshal(contents)
 }
 
 // ByteArrayToMap ->
-func (db *DB) ByteArrayToMap(contents []byte) map[string]string {
-	b := new(bytes.Buffer)
-	var decodedMap map[string]string
-	d := gob.NewDecoder(b)
+func (db *DB) ByteArrayToMap(contents []byte) (map[string]string, error) {
+	m := make(map[string]string)
+	err := json.Unmarshal(contents, &m)
 
-	// Decoding the serialized data
-	err := d.Decode(&decodedMap)
-	if err != nil {
-		panic(err)
-	}
-
-	return decodedMap
+	return m, err
 }
 
 // MergeDB ->
@@ -89,5 +76,17 @@ func (db *DB) MergeDB(newContents map[string]string) {
 		if err != nil {
 			panic(err)
 		}
+	}
+}
+
+// PrintDB ->
+func (db *DB) PrintDB() {
+	it := db.kv.NewIterator([]byte{}, []byte{})
+
+	for it.Next() {
+		thisKey := string(it.Key()[:])
+		thisVal := string(it.Value()[:])
+
+		fmt.Println(thisKey, thisVal)
 	}
 }

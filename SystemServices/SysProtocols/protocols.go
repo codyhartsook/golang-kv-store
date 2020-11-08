@@ -122,9 +122,15 @@ func (proto *Protocol) sendGossip(con consensus.ConEngine) {
 	gossiping.Lock()
 	defer gossiping.Unlock()
 
+	p, err := proto.dbRef.ToByteArray()
+
+	if err != nil {
+		logger.Write(err.Error())
+	}
+
 	thisMsg := msg.Msg{
 		SrcAddr: proto.addr,
-		Payload: proto.dbRef.ToByteArray(),
+		Payload: p,
 		ID:      "",
 		Action:  "gossip",
 	}
@@ -149,7 +155,12 @@ func (proto *Protocol) RecvGossip(Msg msg.Msg, con consensus.ConEngine, myDB db.
 
 	if needToUpdate {
 		// compare and update
-		myDB.MergeDB(myDB.ByteArrayToMap(Msg.Payload))
+		p, err := myDB.ByteArrayToMap(Msg.Payload)
+		if err != nil {
+			logger.Write(err.Error())
+		}
+
+		myDB.MergeDB(p)
 	}
 }
 
