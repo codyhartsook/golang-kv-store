@@ -28,7 +28,7 @@ type Protocol struct {
 	dbRef            db.DB
 }
 
-// NewProtocol ->
+// NewProtocol -> Construct a new system level protocol
 func NewProtocol(nodeAddr string, shardReplicas []string, DB db.DB) *Protocol {
 	p := new(Protocol)
 	p.addr = nodeAddr
