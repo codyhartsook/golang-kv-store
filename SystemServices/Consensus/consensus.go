@@ -11,16 +11,15 @@ import (
 	"time"
 )
 
-var logger log.AsyncLog
+var logger log.AsyncLog // define our logging suite
 
-// ConEngine ->
+// ConEngine -> Provides an interface to contstruct causaly consistent reads and writes.
 type ConEngine struct {
-	vectorClock     map[string]int
-	messageCapacity int
-	streams         map[string]chan msg.Msg
-	quorumReq       int
-	addr            string
-	Net             netutil.UDP
+	vectorClock map[string]int
+	streams     map[string]chan msg.Msg
+	quorumReq   int
+	addr        string
+	Net         netutil.UDP
 }
 
 // NewConEngine -> Construct a new consensus manager
@@ -104,13 +103,16 @@ func (c *ConEngine) generateID() string {
 
 */
 
-// NewEventStream -> Provides a messaging construct to implement Quorum replication among shards
+// NewEventStream -> Given a key get request, contact the correct replicas for the
+// value associated to that key. We can define how relationship between availability
+// and consistency by determining how many replicas we need to hear from before we
+// return to the client with the retrived value.
 func (c *ConEngine) NewEventStream() string {
-	c.messageCapacity = c.quorumReq
 
 	id := c.generateID()
-	message := make(chan msg.Msg, c.messageCapacity)
+	message := make(chan msg.Msg, c.quorumReq)
 
+	// generate a unique channel id
 	// gain exclusive access before we add to map of channels
 	m := &sync.Mutex{}
 	m.Lock()
@@ -120,7 +122,8 @@ func (c *ConEngine) NewEventStream() string {
 	return id
 }
 
-// Deliver -> Publish new message to channel until we reach bound of buffer
+// Deliver -> This function indicates we have received a response from a replica during
+// a get request. Send a message into the channel associated with this get request.
 func (c *ConEngine) Deliver(newMsg msg.Msg) error {
 
 	thisChan, ok := c.streams[newMsg.ID]
@@ -140,7 +143,8 @@ func (c *ConEngine) Deliver(newMsg msg.Msg) error {
 }
 
 // OrderEvents -> Consume all messages in channel and compare causal context
-// before returning the most up to date read
+// before returning the most up to date read. Each message in this channel
+// is from a separate shard replica.
 func (c *ConEngine) OrderEvents(id string) (msg.Msg, error) {
 
 	var Nil map[string]int
@@ -152,6 +156,7 @@ func (c *ConEngine) OrderEvents(id string) (msg.Msg, error) {
 		return highestPriorityMsg, fmt.Errorf("Stream id %s not in map of streams", id)
 	}
 
+	// read all responses from the specified number of replicas
 	seen := 0
 	for thisMsg := range messages {
 
@@ -166,17 +171,18 @@ func (c *ConEngine) OrderEvents(id string) (msg.Msg, error) {
 		}
 
 		seen++
-		if seen >= c.messageCapacity {
+		if seen >= c.quorumReq {
 			close(messages)
 			break
 		}
 	}
 
-	// gain exclusive access to our map of channels before we delete this stream id
+	// gain exclusive access to our map of channels before we delete this read stream id
 	m := &sync.Mutex{}
 	m.Lock()
 	defer m.Unlock()
 	delete(c.streams, id)
+
 	return highestPriorityMsg, nil
 }
 
