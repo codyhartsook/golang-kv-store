@@ -19,12 +19,11 @@ type ConEngine struct {
 	streams     map[string]chan msg.Msg
 	quorumReq   int
 	addr        string
-	Net         netutil.UDP
+	netutil.UDP
 }
 
 // NewConEngine -> Construct a new consensus manager
-func NewConEngine(ip string, port int, replicas int, view []string) *ConEngine {
-	c := new(ConEngine)
+func (c *ConEngine) NewConEngine(ip string, port int, replicas int, view []string) {
 	c.vectorClock = make(map[string]int)
 	c.streams = make(map[string]chan msg.Msg)
 	c.addr = ip
@@ -43,11 +42,7 @@ func NewConEngine(ip string, port int, replicas int, view []string) *ConEngine {
 	fmt.Printf("Using quorum requirement of %d replicas with a view of %d replicas\n", c.quorumReq, replicas)
 
 	// create a udp utility
-	udp := new(netutil.UDP)
-	udp.Init(ip, port, 1024)
-	c.Net = *udp
-
-	return c
+	c.UDP.Init(ip, port, 1024)
 }
 
 // Send -> Provide a wrapper for any networking functions needed to send and recv messages.
@@ -57,22 +52,22 @@ func (c *ConEngine) Send(addr string, Msg msg.Msg) {
 
 	// update my clock
 	c.Increment(c.addr)
-	c.Net.Send(addr, Msg)
+	c.Send(addr, Msg)
 }
 
 // SendWithoutEvent -> Dont update the vector clock
 func (c *ConEngine) SendWithoutEvent(addr string, Msg msg.Msg) {
-	c.Net.Send(addr, Msg)
+	c.Send(addr, Msg)
 }
 
 // RecvFrom -> wraper for the netutil function, is a blocking call
 func (c *ConEngine) RecvFrom() {
-	c.Net.RecvFrom()
+	c.RecvFrom()
 }
 
 // Signal -> wrapper for the netutil function
 func (c *ConEngine) Signal() {
-	c.Net.Signal()
+	c.Signal()
 }
 
 // Encode -> Add our vector clock to the message

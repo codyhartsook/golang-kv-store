@@ -7,7 +7,8 @@ import (
 
 // 01
 func TestPut(t *testing.T) {
-	db := NewDB()
+	db := new(DB)
+	db.NewDB()
 
 	scenarios := []struct {
 		key    string
@@ -29,7 +30,8 @@ func TestPut(t *testing.T) {
 
 // 02
 func TestGet(t *testing.T) {
-	db := NewDB()
+	db := new(DB)
+	db.NewDB()
 
 	scenarios := []struct {
 		key    string
@@ -55,7 +57,8 @@ func TestGet(t *testing.T) {
 
 // 03
 func TestContentConvertion(t *testing.T) {
-	db := NewDB()
+	db := new(DB)
+	db.NewDB()
 
 	var baseKey string
 	var baseVal string

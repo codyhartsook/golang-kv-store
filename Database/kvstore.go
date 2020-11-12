@@ -15,11 +15,9 @@ type DB struct {
 }
 
 // NewDB -> create a new database instance
-func NewDB() *DB {
-	db := new(DB)
+func (db *DB) NewDB() {
 	db.kv = rawdb.NewMemoryDatabase()
 	db.id = 0
-	return db
 }
 
 // Get ->

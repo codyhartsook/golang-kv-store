@@ -25,20 +25,17 @@ type Protocol struct {
 	shardReplicas    []string
 	addr             string
 	notSeen          []string
-	dbRef            db.DB
+	db.DB
 }
 
 // NewProtocol -> Construct a new system level protocol
-func NewProtocol(nodeAddr string, shardReplicas []string, DB db.DB) *Protocol {
-	p := new(Protocol)
-	p.addr = nodeAddr
-	p.shardReplicas = shardReplicas
-	p.dbRef = DB
+func (proto *Protocol) NewProtocol(nodeAddr string, shardReplicas []string, DB db.DB) {
+	proto.addr = nodeAddr
+	proto.shardReplicas = shardReplicas
+	proto.DB = DB
 
 	logger = *log.New(nil) // create logger
 	go logger.Start()
-
-	return p
 }
 
 // Broadcast -> Send message to each node in parrallel
@@ -122,7 +119,7 @@ func (proto *Protocol) sendGossip(con consensus.ConEngine) {
 	gossiping.Lock()
 	defer gossiping.Unlock()
 
-	p, err := proto.dbRef.ToByteArray()
+	p, err := proto.ToByteArray()
 
 	if err != nil {
 		logger.Write(err.Error())
@@ -141,7 +138,7 @@ func (proto *Protocol) sendGossip(con consensus.ConEngine) {
 }
 
 // RecvGossip -> must put a lock on gossiping so only one node at a time can gossip with us
-func (proto *Protocol) RecvGossip(Msg msg.Msg, con consensus.ConEngine, myDB db.DB) {
+func (proto *Protocol) RecvGossip(Msg msg.Msg, con consensus.ConEngine) {
 
 	// get lock then release when function returns
 	gossiping.Lock()
@@ -155,12 +152,12 @@ func (proto *Protocol) RecvGossip(Msg msg.Msg, con consensus.ConEngine, myDB db.
 
 	if needToUpdate {
 		// compare and update
-		p, err := myDB.ByteArrayToMap(Msg.Payload)
+		p, err := proto.ByteArrayToMap(Msg.Payload)
 		if err != nil {
 			logger.Write(err.Error())
 		}
 
-		myDB.MergeDB(p)
+		proto.MergeDB(p)
 	}
 }
 

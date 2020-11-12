@@ -31,12 +31,11 @@ type Orchestrator struct {
 	vShards            []int       // map of virtual nodes to physical nodes
 	virtualTranslation map[int]int // translation of virtual shards to physical
 	ringEdge           int
-	consensus          consensusEng.ConEngine
+	consensusEng.ConEngine
 }
 
 // NewOrchestrator -> construct a new orchestrator
-func NewOrchestrator(addr string, view []string, replFactor int) *Orchestrator {
-	oracle := new(Orchestrator)
+func (oracle *Orchestrator) NewOrchestrator(addr string, view []string, replFactor int) {
 	oracle.hostAddr = addr
 	oracle.view = view
 	oracle.virtualFactor = 8
@@ -62,13 +61,11 @@ func NewOrchestrator(addr string, view []string, replFactor int) *Orchestrator {
 
 	// create node to shard mapping
 	oracle.UpdateView(oracle.view, oracle.replFactor)
-
-	return oracle
 }
 
 // AddConsensusEngine -> set the consensus engine field
 func (oracle *Orchestrator) AddConsensusEngine(c consensusEng.ConEngine) {
-	oracle.consensus = c
+	oracle.ConEngine = c
 }
 
 // State -> Return the json representation of the struct
@@ -229,7 +226,7 @@ func (oracle *Orchestrator) KeyOp(Msg msg.Msg) bool {
 			local = true
 		} else {
 			logger.Write("Sending key op to node " + node + " with ID " + Msg.ID)
-			go oracle.consensus.Send(node, Msg) // send key-val pair to correct replicas
+			go oracle.Send(node, Msg) // send key-val pair to correct replicas
 		}
 	}
 	// return whether we need to store this key on this node

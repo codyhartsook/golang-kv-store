@@ -20,14 +20,14 @@ const (
 
 // Create a handler type to store the reference to a node
 type handler struct {
-	nodeRef *node.Node
+	node.Node
 }
 
 // display root message
 func (h *handler) stateHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprintf(w, "Node id: {%s}\n", h.nodeRef.ID)
+	fmt.Fprintf(w, "Node id: {%s}\n", h.ID)
 	fmt.Fprintf(w, "Node status: running\n")
-	fmt.Fprintf(w, "shards: {%v}\n", h.nodeRef.Oracle.ShardGroups)
+	fmt.Fprintf(w, "shards: {%v}\n", h.ShardGroups)
 	fmt.Fprintf(w, "Database state:\n")
 }
 
@@ -43,29 +43,29 @@ func (h *handler) handleGet(w http.ResponseWriter, r *http.Request) {
 	Key := urlPathSegments[len(urlPathSegments)-1]
 
 	// start causal event comparison
-	eventID := h.nodeRef.ConEngine.NewEventStream()
+	eventID := h.NewEventStream()
 	thisMsg := msg.Msg{
-		SrcAddr: h.nodeRef.IP,
+		SrcAddr: h.IP,
 		Payload: []byte(Key),
 		ID:      eventID,
 		Action:  "get",
 	}
 
 	// Request this key from each replica in the correct shard
-	ourShard := h.nodeRef.Oracle.KeyOp(thisMsg)
+	ourShard := h.KeyOp(thisMsg)
 
 	// we are the correct shard, consider our key-val entry
 	if ourShard {
 
-		got, _ := h.nodeRef.DB.Get(Key)
+		got, _ := h.Get(Key)
 		strEntry := string(got[:])
 		thisMsg.Payload = []byte(strEntry)
 
-		myCpy := h.nodeRef.ConEngine.Encode(thisMsg)
-		h.nodeRef.ConEngine.Deliver(myCpy)
+		myCpy := h.Encode(thisMsg)
+		h.Deliver(myCpy)
 	}
 
-	result, notFound := h.nodeRef.ConEngine.OrderEvents(eventID) // blocking call
+	result, notFound := h.OrderEvents(eventID) // blocking call
 	if notFound != nil {
 		panic(notFound)
 	}
@@ -92,17 +92,17 @@ func (h *handler) handlePut(w http.ResponseWriter, r *http.Request) {
 	}
 
 	thisMsg := msg.Msg{
-		SrcAddr: h.nodeRef.IP,
+		SrcAddr: h.IP,
 		Payload: []byte(newEntry.Key + ":" + newEntry.Value),
 		ID:      "",
 		Action:  "put",
 	}
 
-	storeLocal := h.nodeRef.Oracle.KeyOp(thisMsg)
+	storeLocal := h.KeyOp(thisMsg)
 
 	// put key-val in our database
 	if storeLocal {
-		h.nodeRef.DB.Put(newEntry.Key, newEntry.Value)
+		h.Put(newEntry.Key, newEntry.Value)
 	}
 }
 
@@ -130,7 +130,7 @@ func (h *handler) keyHandler(w http.ResponseWriter, r *http.Request) {
 // This function is given a node reference in order to access its fields
 func SetupRoutes(apiBasePath string, node *node.Node) {
 	myHandlerType := new(handler)
-	myHandlerType.nodeRef = node
+	myHandlerType.Node = *node
 
 	sHandler := http.HandlerFunc(myHandlerType.stateHandler)
 	kHandler := http.HandlerFunc(myHandlerType.keyHandler)

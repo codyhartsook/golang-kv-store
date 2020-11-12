@@ -20,17 +20,17 @@ var logger log.AsyncLog
 // Node -> Define node structure in order to provide access to the database and
 // network fucntions wrapper
 type Node struct {
-	Oracle    protocols.Orchestrator
-	ConEngine consensus.ConEngine
-	Protocols protocols.Protocol
-	ID        string
-	Port      int
-	IP        string
-	index     int
-	peers     []string
-	DB        database.DB
-	actions   map[string]interface{}
-	buffer    string
+	protocols.Orchestrator // embed type
+	consensus.ConEngine
+	protocols.Protocol
+	database.DB
+	ID      string
+	Port    int
+	IP      string
+	index   int
+	peers   []string
+	actions map[string]interface{}
+	buffer  string
 }
 
 // parseEnv -> exctract the initial view of the system from the os environment
@@ -66,32 +66,32 @@ func NewNode() (*Node, error) {
 	node.peers = view
 
 	// create database, partitioner and consensus engine
-	node.DB = *database.NewDB()
-	node.Oracle = *protocols.NewOrchestrator(node.ID, node.peers, replFactor)
+	node.DB.NewDB()
+	node.Orchestrator.NewOrchestrator(node.ID, node.peers, replFactor)
 
 	var peerReps []string
 	var ok error
-	peerReps, ok = node.Oracle.PeerReplicas(node.IP)
+	peerReps, ok = node.PeerReplicas(node.IP)
 	if ok != nil {
 		return node, ok
 	}
 
 	var numReps int
-	numReps, ok = node.Oracle.NumReplicas()
+	numReps, ok = node.NumReplicas()
 	if ok != nil {
 		return node, ok
 	}
-	node.ConEngine = *consensus.NewConEngine(ip, port, numReps, node.peers)
-	node.Oracle.AddConsensusEngine(node.ConEngine)
-	node.Protocols = *protocols.NewProtocol(node.IP, peerReps, node.DB)
+	node.ConEngine.NewConEngine(ip, port, numReps, node.peers)
+	node.AddConsensusEngine(node.ConEngine)
+	node.Protocol.NewProtocol(node.IP, peerReps, node.DB)
 
 	// construct function mapping
 	node.actions = map[string]interface{}{
-		"signal": node.ConEngine.Signal,
+		"signal": node.Signal,
 		"read":   "",
 		"put":    node.RemotePut,
 		"get":    node.RemoteGet,
-		"gossip": node.Protocols.RecvGossip,
+		"gossip": node.RecvGossip,
 	}
 
 	logger = *log.New(nil) // create logger
@@ -115,7 +115,7 @@ func (node *Node) ServerDaemon() error {
 
 	// listen to all addresses
 	addr := net.UDPAddr{
-		Port: node.ConEngine.Net.Port,
+		Port: node.Port,
 		IP:   net.ParseIP("0.0.0.0"),
 	}
 
@@ -143,7 +143,7 @@ func (node *Node) ServerDaemon() error {
 
 // MessageHandler -> Handle internal messages between shard replicas
 func (node *Node) MessageHandler(buffer bytes.Buffer) error {
-	msgDecode := node.ConEngine.Net.Decode(buffer)
+	msgDecode := node.Decode(buffer)
 
 	action := string(msgDecode.Action)
 
@@ -163,17 +163,17 @@ func (node *Node) MessageHandler(buffer bytes.Buffer) error {
 			val := strings.Split(msgDecode.PayloadToStr(), ":")[1]
 
 			// update vector clock
-			node.ConEngine.Increment(msgDecode.SrcAddr)
+			node.Increment(msgDecode.SrcAddr)
 			v.(func(string, string))(key, val)
 
 		case "get":
 			// update vector clock
-			node.ConEngine.Increment(msgDecode.SrcAddr)
+			node.Increment(msgDecode.SrcAddr)
 			v.(func(msg.Msg))(msgDecode)
 
 		case "read":
 			// publish a message to the causal consensus engine
-			node.ConEngine.Deliver(msgDecode)
+			node.Deliver(msgDecode)
 
 		case "gossip":
 			v.(func(msg.Msg, consensus.ConEngine, database.DB))(msgDecode, node.ConEngine, node.DB)
@@ -197,7 +197,7 @@ func (node *Node) RemoteGet(Msg msg.Msg) {
 
 	// send value back to source node
 	logger.Write("sending retrieved token: " + Msg.PayloadToStr() + " back to " + src)
-	node.ConEngine.Send(src, Msg)
+	node.Send(src, Msg)
 }
 
 // RemotePut -> Insert the key, value pair into our local database
@@ -212,5 +212,5 @@ func (node *Node) RunBackendSystem() {
 	go node.ServerDaemon()
 
 	// use the peer to peer connectivity protocol to ensure all nodes up
-	//go node.Protocols.InitGossipProtocol(node.ConEngine)
+	//go node.InitGossipProtocol(node.ConEngine)
 }

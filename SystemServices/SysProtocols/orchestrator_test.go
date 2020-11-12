@@ -15,7 +15,8 @@ func TestNewOrchestrator(t *testing.T) {
 	}
 
 	for _, s := range scenarios {
-		oracle := NewOrchestrator(s.addr, s.view, s.replFactor)
+		oracle := new(Orchestrator)
+		oracle.NewOrchestrator(s.addr, s.view, s.replFactor)
 
 		replicas, _ := oracle.NumReplicas()
 		if replicas < s.replFactor {
@@ -37,7 +38,8 @@ func TestGetShardID(t *testing.T) {
 	}
 
 	for _, s := range scenarios {
-		oracle := NewOrchestrator(s.addr, s.view, s.replFactor)
+		oracle := new(Orchestrator)
+		oracle.NewOrchestrator(s.addr, s.view, s.replFactor)
 
 		index := oracle.GetShardID(oracle.hostAddr)
 		if index < 0 {
