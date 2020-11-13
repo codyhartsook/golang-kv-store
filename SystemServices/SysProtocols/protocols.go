@@ -1,6 +1,7 @@
 package protocols
 
 import (
+	"bytes"
 	"fmt"
 	db "kv-store/Database"
 	log "kv-store/Logging"
@@ -46,7 +47,7 @@ func (proto *Protocol) Broadcast(view []string, con consensus.ConEngine) {
 	for _, node := range view {
 		thisMsg := msg.Msg{
 			SrcAddr: proto.addr,
-			Payload: []byte(proto.msg),
+			Payload: strings.NewReader(proto.msg),
 			ID:      "",
 			Action:  proto.action,
 		}
@@ -127,7 +128,7 @@ func (proto *Protocol) sendGossip(con consensus.ConEngine) {
 
 	thisMsg := msg.Msg{
 		SrcAddr: proto.addr,
-		Payload: p,
+		Payload: bytes.NewReader(p),
 		ID:      "",
 		Action:  "gossip",
 	}
@@ -152,7 +153,9 @@ func (proto *Protocol) RecvGossip(Msg msg.Msg, con consensus.ConEngine) {
 
 	if needToUpdate {
 		// compare and update
-		p, err := proto.ByteArrayToMap(Msg.Payload)
+		payload := new(bytes.Buffer)
+		payload.ReadFrom(Msg.Payload)
+		p, err := proto.ByteArrayToMap(payload.Bytes())
 		if err != nil {
 			logger.Write(err.Error())
 		}
@@ -210,7 +213,7 @@ func (proto *Protocol) ChainMsg(oracle Orchestrator, con consensus.ConEngine) er
 		// send message to this node
 		thisMsg := msg.Msg{
 			SrcAddr: proto.addr,
-			Payload: []byte(proto.msg),
+			Payload: strings.NewReader(proto.msg),
 			ID:      "",
 			Action:  proto.action,
 		}
@@ -231,7 +234,7 @@ func (proto *Protocol) ChainMsg(oracle Orchestrator, con consensus.ConEngine) er
 		fmt.Println("Sending chain message to next node", addr)
 		thisMsg := msg.Msg{
 			SrcAddr: proto.addr,
-			Payload: []byte(proto.msg),
+			Payload: strings.NewReader(proto.msg),
 			ID:      "",
 			Action:  proto.action,
 		}

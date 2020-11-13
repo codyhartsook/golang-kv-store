@@ -9,7 +9,6 @@ docker rm "${name}"
 
 docker build -t kv-store:5.0 .
 
-clear
 
 docker run --network=kv_subnet                           \
 		   --name="${name}"                              \

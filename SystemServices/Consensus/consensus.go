@@ -1,7 +1,9 @@
 package consensus
 
 import (
+	"bytes"
 	"fmt"
+	"io"
 	log "kv-store/Logging"
 	msg "kv-store/Messages"
 	netutil "kv-store/SystemServices/Network"
@@ -143,7 +145,7 @@ func (c *ConEngine) Deliver(newMsg msg.Msg) error {
 func (c *ConEngine) OrderEvents(id string) (msg.Msg, error) {
 
 	var Nil map[string]int
-	var p []byte
+	var p io.Reader
 	var highestPriorityMsg = msg.Msg{SrcAddr: "", Payload: p, ID: "", Action: "", Context: Nil}
 
 	messages, ok := c.streams[id]
@@ -183,8 +185,13 @@ func (c *ConEngine) OrderEvents(id string) (msg.Msg, error) {
 
 // IdenticalValue -> if the message value is the same we dont need to
 // check vector clocks
-func (c *ConEngine) IdenticalValue(m1, m2 []byte) bool {
-	if string(m1) != string(m2) {
+func (c *ConEngine) IdenticalValue(m1, m2 io.Reader) bool {
+	buf1 := new(bytes.Buffer)
+	buf2 := new(bytes.Buffer)
+	buf1.ReadFrom(m1)
+	buf2.ReadFrom(m2)
+
+	if buf1.String() != buf2.String() {
 		return false
 	}
 	return true

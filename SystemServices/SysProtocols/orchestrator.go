@@ -27,7 +27,7 @@ type Orchestrator struct {
 	replFactor         int
 	virtualFactor      int
 	numShards          int
-	ShardGroups        [][]string  // breakdown of replica nodes per shard
+	ShardGroups        [][]string  // replica nodes per shard index
 	vShards            []int       // map of virtual nodes to physical nodes
 	virtualTranslation map[int]int // translation of virtual shards to physical
 	ringEdge           int
@@ -46,7 +46,7 @@ func (oracle *Orchestrator) NewOrchestrator(addr string, view []string, replFact
 	go logger.Start()
 
 	// pick a prime number to mod our hash by
-	// this defines our ring edge, where values circle back to 0
+	// this defines our ring edge where values circle back to 0
 	viewLen := len(view)
 	switch {
 	case viewLen < 100:

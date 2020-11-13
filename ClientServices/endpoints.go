@@ -46,7 +46,7 @@ func (h *handler) handleGet(w http.ResponseWriter, r *http.Request) {
 	eventID := h.NewEventStream()
 	thisMsg := msg.Msg{
 		SrcAddr: h.IP,
-		Payload: []byte(Key),
+		Payload: strings.NewReader(Key),
 		ID:      eventID,
 		Action:  "get",
 	}
@@ -59,7 +59,7 @@ func (h *handler) handleGet(w http.ResponseWriter, r *http.Request) {
 
 		got, _ := h.Get(Key)
 		strEntry := string(got[:])
-		thisMsg.Payload = []byte(strEntry)
+		thisMsg.Payload = strings.NewReader(strEntry)
 
 		myCpy := h.Encode(thisMsg)
 		h.Deliver(myCpy)
@@ -93,7 +93,7 @@ func (h *handler) handlePut(w http.ResponseWriter, r *http.Request) {
 
 	thisMsg := msg.Msg{
 		SrcAddr: h.IP,
-		Payload: []byte(newEntry.Key + ":" + newEntry.Value),
+		Payload: strings.NewReader(newEntry.Key + ":" + newEntry.Value),
 		ID:      "",
 		Action:  "put",
 	}

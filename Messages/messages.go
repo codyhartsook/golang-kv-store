@@ -1,17 +1,28 @@
 package messages
 
+import (
+	"fmt"
+	"io"
+	"io/ioutil"
+)
+
 // Msg -> System level message format
 type Msg struct {
 	SrcAddr string
 	ID      string
-	Payload []byte
+	Payload io.Reader
 	Action  string
 	Context map[string]int
 }
 
 // PayloadToStr -> Convert the message payload to a string
 func (m *Msg) PayloadToStr() string {
-	return string(m.Payload)
+	buf, err := ioutil.ReadAll(m.Payload)
+
+	if err != nil {
+		fmt.Printf("error in reading message payload %v", err)
+	}
+	return string(buf)
 }
 
 // Entry -> format key-value user-level entries

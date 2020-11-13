@@ -191,7 +191,7 @@ func (node *Node) RemoteGet(Msg msg.Msg) {
 	got, _ := node.DB.Get(Msg.PayloadToStr())
 
 	src := Msg.SrcAddr
-	Msg.Payload = got
+	Msg.Payload = bytes.NewReader(got)
 	Msg.SrcAddr = node.ID
 	Msg.Action = "read"
 
